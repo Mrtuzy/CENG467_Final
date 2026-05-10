@@ -38,6 +38,10 @@ class EvaluationRunner:
 
         if self.generator_model != "dry_run":
             generator.load_model()
+            # Share loaded model with judge to avoid loading 14GB twice
+            if self.judge_model == self.generator_model:
+                judge._model = generator._model
+                judge._tokenizer = generator._tokenizer
 
         results = []
         metrics = {

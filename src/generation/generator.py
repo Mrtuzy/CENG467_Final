@@ -28,7 +28,7 @@ class RAGGenerator:
         self._tokenizer = AutoTokenizer.from_pretrained(self.model_name)
         self._model = AutoModelForCausalLM.from_pretrained(
             self.model_name,
-            torch_dtype=torch.float16 if self.device != "cpu" else torch.float32,
+            dtype=torch.float16 if self.device != "cpu" else torch.float32,
             device_map=self.device,
         )
         self._model.eval()
@@ -38,8 +38,9 @@ class RAGGenerator:
         return PROMPT_TEMPLATE.format(context=context, question=question)
 
     def generate(self, question: str, context_passages: list[dict]) -> dict:
-        prompt = self.build_prompt(question, context_passages)
-        prompt_tokens = len(prompt.split())
+        context = "\n\n---\n\n".join(p["passage"] for p in context_passages)
+        user_content = PROMPT_TEMPLATE.format(context=context, question=question)
+        prompt_tokens = len(user_content.split())
 
         if self.model_name == "dry_run":
             return {
@@ -53,7 +54,14 @@ class RAGGenerator:
             raise RuntimeError("Call load_model() before generate().")
 
         import torch
-        inputs = self._tokenizer(prompt, return_tensors="pt").to(self._model.device)
+        messages = [{"role": "user", "content": user_content}]
+        if hasattr(self._tokenizer, "apply_chat_template"):
+            input_text = self._tokenizer.apply_chat_template(
+                messages, tokenize=False, add_generation_prompt=True
+            )
+        else:
+            input_text = user_content
+        inputs = self._tokenizer(input_text, return_tensors="pt").to(self._model.device)
         input_len = inputs["input_ids"].shape[1]
 
         t0 = time.time()

@@ -1,0 +1,65 @@
+[
+  {
+    "pruner": "no_pruning",
+    "n_samples": 50,
+    "faithfulness_mean": 0.7183333333333333,
+    "em_mean": 0.04,
+    "f1_mean": 0.1475969839559931,
+    "compression_ratio_mean": 1.0,
+    "latency_mean_s": 6.756870594024658
+  },
+  {
+    "pruner": "naive_truncation",
+    "n_samples": 50,
+    "faithfulness_mean": 0.6206666666666666,
+    "em_mean": 0.04,
+    "f1_mean": 0.13853994921660867,
+    "compression_ratio_mean": 0.9181451321004765,
+    "latency_mean_s": 4.946245846748352
+  },
+  {
+    "pruner": "recomp",
+    "n_samples": 50,
+    "faithfulness_mean": 0.75,
+    "em_mean": 0.04,
+    "f1_mean": 0.14119966760836108,
+    "compression_ratio_mean": 0.9112959763946082,
+    "latency_mean_s": 5.378885955810547
+  },
+  {
+    "pruner": "llmlingua2",
+    "n_samples": 50,
+    "faithfulness_mean": 0.75,
+    "em_mean": 0.04,
+    "f1_mean": 0.14119966760836108,
+    "compression_ratio_mean": 0.9112959763946082,
+    "latency_mean_s": 5.3759754323959354
+  },
+  {
+    "pruner": "provence",
+    "n_samples": 50,
+    "faithfulness_mean": 0.6566666666666667,
+    "em_mean": 0.0,
+    "f1_mean": 0.056985807970503954,
+    "compression_ratio_mean": 0.07210466255025202,
+    "latency_mean_s": 4.486128735542297
+  },
+  {
+    "pruner": "history_pruning",
+    "n_samples": 50,
+    "faithfulness_mean": 0.7183333333333333,
+    "em_mean": 0.04,
+    "f1_mean": 0.1475969839559931,
+    "compression_ratio_mean": 1.0,
+    "latency_mean_s": 6.3395438528060915
+  },
+  {
+    "pruner": "combined",
+    "n_samples": 50,
+    "faithfulness_mean": 0.6566666666666667,
+    "em_mean": 0.0,
+    "f1_mean": 0.056985807970503954,
+    "compression_ratio_mean": 0.07210466255025202,
+    "latency_mean_s": 4.478951916694641
+  }
+]

@@ -17,7 +17,7 @@ class LLMJudge:
         self._tokenizer = AutoTokenizer.from_pretrained(self.model_name)
         self._model = AutoModelForCausalLM.from_pretrained(
             self.model_name,
-            torch_dtype=torch.float16,
+            dtype=torch.float16,
             device_map="auto",
         )
         self._model.eval()
@@ -32,7 +32,14 @@ class LLMJudge:
 
         self._load_model()
         import torch
-        inputs = self._tokenizer(prompt, return_tensors="pt").to(self._model.device)
+        messages = [{"role": "user", "content": prompt}]
+        if hasattr(self._tokenizer, "apply_chat_template"):
+            input_text = self._tokenizer.apply_chat_template(
+                messages, tokenize=False, add_generation_prompt=True
+            )
+        else:
+            input_text = prompt
+        inputs = self._tokenizer(input_text, return_tensors="pt").to(self._model.device)
         with torch.no_grad():
             output_ids = self._model.generate(
                 **inputs,
@@ -61,7 +68,10 @@ class LLMJudge:
         return "yes" in output.lower()
 
     def score(self, answer: str, context_passages: list[dict]) -> dict:
-        context = "\n".join(p["passage"] for p in context_passages)
+        context_words = " ".join(p["passage"] for p in context_passages).split()
+        if len(context_words) > 400:
+            context_words = context_words[:400]
+        context = " ".join(context_words)
         claims = self.decompose(answer)
         supported = 0
         claim_results = []
