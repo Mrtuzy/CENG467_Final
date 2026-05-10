@@ -1,0 +1,3 @@
+# This directory stores evaluation results
+# Results are saved as JSONL files by src/evaluation/runner.py
+# Each line in the JSONL contains: sample_id, question, gold_answer, generated_answer, pruner, faithfulness, n_claims, em, f1, compression_ratio, latency_s
