@@ -26,6 +26,8 @@ PRUNERS = [
     "provence",
     "history_pruning",
     "combined",
+    "lnn_sentence",
+    "lnn_token",
 ]
 
 PRUNER_LABELS = {
@@ -36,6 +38,8 @@ PRUNER_LABELS = {
     "provence":         "S2: Provence",
     "history_pruning":  "S3: History Pruning",
     "combined":         "S4: Combined",
+    "lnn_sentence":     "S5a: LNN Sentence",
+    "lnn_token":        "S5b: LNN Token",
 }
 
 

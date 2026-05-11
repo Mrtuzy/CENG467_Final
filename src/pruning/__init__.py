@@ -5,6 +5,8 @@ from .llmlingua2 import LLMLingua2Pruner
 from .provence import ProvencePruner
 from .history_pruning import HistoryPruner
 from .combined import CombinedPruner
+from .lnn_sentence_pruner import LNNSentencePruner
+from .lnn_token_pruner import LNNTokenPruner
 
 PRUNER_REGISTRY: dict = {
     "no_pruning": NoPruningPruner,
@@ -14,4 +16,6 @@ PRUNER_REGISTRY: dict = {
     "provence": ProvencePruner,
     "history_pruning": HistoryPruner,
     "combined": CombinedPruner,
+    "lnn_sentence": LNNSentencePruner,
+    "lnn_token": LNNTokenPruner,
 }

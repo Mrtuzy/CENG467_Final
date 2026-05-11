@@ -13,3 +13,4 @@ tqdm>=4.66.0
 jupyter>=1.0.0
 scikit-learn>=1.4.0
 llmlingua>=0.2.0
+ncps>=0.0.7
