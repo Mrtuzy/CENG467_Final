@@ -60,7 +60,7 @@ from datasets import load_dataset
 import json
 
 print("📥 Loading HotpotQA (distractor) ...")
-ds = load_dataset("hotpot_qa", "distractor", trust_remote_code=True)
+ds = load_dataset("hotpot_qa", "distractor")
 
 # Use validation split
 val_data = ds["validation"]
@@ -76,7 +76,7 @@ def convert_sample(sample):
         "context": context,
         "supporting_facts": {
             "title": sample["supporting_facts"]["title"],
-            "sent_idx": sample["supporting_facts"]["sent_idx"],
+            "sent_id": sample["supporting_facts"]["sent_id"],
         },
         "type": sample["type"],
         "level": sample["level"],

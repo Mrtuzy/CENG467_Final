@@ -33,7 +33,7 @@ def supporting_fact_coverage(
     """
     sf = sample.get("supporting_facts", {})
     titles = sf.get("title", [])
-    idxs = sf.get("sent_idx", [])
+    idxs = sf.get("sent_id", [])
 
     if not titles:
         return 1.0
@@ -85,7 +85,7 @@ def noise_ratio(
     """
     sf = sample.get("supporting_facts", {})
     titles = sf.get("title", [])
-    idxs = sf.get("sent_idx", [])
+    idxs = sf.get("sent_id", [])
 
     # Build set of supporting sentence words
     context_map: dict[str, list[str]] = {}

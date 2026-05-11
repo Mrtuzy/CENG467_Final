@@ -69,7 +69,7 @@ class MultiTurnSimulator:
     def get_supporting_set(self, sample: dict) -> set[tuple[str, int]]:
         sf = sample.get("supporting_facts", {})
         titles = sf.get("title", [])
-        idxs = sf.get("sent_idx", [])
+        idxs = sf.get("sent_id", [])
         return {(t, i) for t, i in zip(titles, idxs)}
 
     def sentence_labels_for_turn(
@@ -92,9 +92,9 @@ class MultiTurnSimulator:
         }
 
     def label_sentence(
-        self, title: str, sent_idx: int, turn_info: dict
+        self, title: str, sent_id: int, turn_info: dict
     ) -> float:
-        key = (title, sent_idx)
+        key = (title, sent_id)
         if key in turn_info["supporting_facts"]:
             return 1.0
         if key in turn_info["historical_facts"]:
