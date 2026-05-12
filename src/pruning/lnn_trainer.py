@@ -124,6 +124,11 @@ def train_sentence_model(
                 hx = None
 
             scores, hx = model(features, hx)
+            # Guard against numerical issues that can trigger CUDA asserts in BCELoss.
+            scores = torch.nan_to_num(scores, nan=0.5, posinf=1.0, neginf=0.0)
+            scores = scores.clamp(1e-6, 1.0 - 1e-6)
+            labels = torch.nan_to_num(labels, nan=0.0, posinf=1.0, neginf=0.0)
+            labels = labels.clamp(0.0, 1.0)
             loss = criterion(scores, labels)
 
             # Detach hidden state to avoid backprop through time across turns
@@ -155,6 +160,10 @@ def train_sentence_model(
                     if ti == 0:
                         hx = None
                     scores, hx = model(feat, hx)
+                    scores = torch.nan_to_num(scores, nan=0.5, posinf=1.0, neginf=0.0)
+                    scores = scores.clamp(1e-6, 1.0 - 1e-6)
+                    lab = torch.nan_to_num(lab, nan=0.0, posinf=1.0, neginf=0.0)
+                    lab = lab.clamp(0.0, 1.0)
                     val_loss += criterion(scores, lab).item()
                     val_n += 1
             avg_val = val_loss / max(val_n, 1)
@@ -241,7 +250,11 @@ def train_token_model(
             scores, hx = model(features, hx)
             # Trim labels to match scores length
             min_len = min(scores.size(0), labels.size(0))
-            loss = criterion(scores[:min_len], labels[:min_len])
+            scores_slice = torch.nan_to_num(scores[:min_len], nan=0.5, posinf=1.0, neginf=0.0)
+            scores_slice = scores_slice.clamp(1e-6, 1.0 - 1e-6)
+            labels_slice = torch.nan_to_num(labels[:min_len], nan=0.0, posinf=1.0, neginf=0.0)
+            labels_slice = labels_slice.clamp(0.0, 1.0)
+            loss = criterion(scores_slice, labels_slice)
 
             if hx is not None:
                 hx = hx.detach()
@@ -272,7 +285,11 @@ def train_token_model(
                         hx = None
                     scores, hx = model(feat, hx)
                     ml = min(scores.size(0), lab.size(0))
-                    val_loss += criterion(scores[:ml], lab[:ml]).item()
+                    scores_slice = torch.nan_to_num(scores[:ml], nan=0.5, posinf=1.0, neginf=0.0)
+                    scores_slice = scores_slice.clamp(1e-6, 1.0 - 1e-6)
+                    lab_slice = torch.nan_to_num(lab[:ml], nan=0.0, posinf=1.0, neginf=0.0)
+                    lab_slice = lab_slice.clamp(0.0, 1.0)
+                    val_loss += criterion(scores_slice, lab_slice).item()
                     val_n += 1
             avg_val = val_loss / max(val_n, 1)
             history["val_loss"].append(avg_val)
