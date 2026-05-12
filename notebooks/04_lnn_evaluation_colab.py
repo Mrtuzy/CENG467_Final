@@ -95,7 +95,7 @@ PRUNER_CONFIGS = {
     "provence":         {"label": "S2: Provence",          "class": "provence"},
     "history_pruning":  {"label": "S3: History Pruning",   "class": "history_pruning"},
     "combined":         {"label": "S4: Combined",          "class": "combined"},
-    "lnn_sentence":     {"label": "S5a: LNN Sentence",    "class": "lnn_sentence"},
+    "lnn_sentence":     {"label": "S5a-v2: Q-LiSP",       "class": "lnn_sentence"},
     "lnn_token":        {"label": "S5b: LNN Token",        "class": "lnn_token"},
 }
 

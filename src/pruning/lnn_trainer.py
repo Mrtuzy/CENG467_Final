@@ -9,7 +9,13 @@ from typing import Optional
 
 from .lnn_sentence_pruner import LNNSentenceModel
 from .lnn_token_pruner import LNNTokenModel
-from .lnn_utils import SentenceEncoder, MultiTurnSimulator, build_sentence_dataset, build_token_dataset
+from .lnn_utils import (
+    SentenceEncoder,
+    MultiTurnSimulator,
+    build_sentence_dataset,
+    build_token_dataset,
+    lnn_sentence_input_dim,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -46,6 +52,21 @@ class TokenLNNDataset(Dataset):
         return self.features[idx], self.labels[idx], self.turns[idx]
 
 
+def _sentence_pos_weight(labels: list[torch.Tensor], device: str) -> torch.Tensor:
+    positives = sum(float((lab > 0.0).sum().item()) for lab in labels)
+    total = sum(float(lab.numel()) for lab in labels)
+    negatives = max(total - positives, 1.0)
+    positives = max(positives, 1.0)
+    return torch.tensor([negatives / positives], dtype=torch.float32, device=device)
+
+
+def _smoothness_loss_from_logits(logits: torch.Tensor) -> torch.Tensor:
+    if logits.numel() <= 1:
+        return logits.new_tensor(0.0)
+    scores = torch.sigmoid(logits)
+    return torch.mean((scores[1:] - scores[:-1]) ** 2)
+
+
 # ---------------------------------------------------------------------------
 # Training: Sentence-level (S5a)
 # ---------------------------------------------------------------------------
@@ -60,6 +81,9 @@ def train_sentence_model(
     device: str = None,
     save_path: str = None,
     encoder: Optional[SentenceEncoder] = None,
+    early_stopping_patience: int = 3,
+    min_delta: float = 1e-4,
+    smoothness_weight: float = 0.05,
 ) -> dict:
     """Train the sentence-level LNN model.
 
@@ -94,15 +118,23 @@ def train_sentence_model(
         val_ds = SentenceLNNDataset(val_data)
 
     emb_dim = encoder.embedding_dim
-    input_dim = emb_dim * 2 + 1
+    input_dim = lnn_sentence_input_dim(emb_dim)
 
     model = LNNSentenceModel(input_dim=input_dim).to(device)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-3)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
-    criterion = nn.BCELoss()
+    criterion = nn.BCEWithLogitsLoss(pos_weight=_sentence_pos_weight(train_data["labels"], device))
 
-    history = {"train_loss": [], "val_loss": []}
+    history = {
+        "train_loss": [],
+        "val_loss": [],
+        "best_epoch": None,
+        "best_val_loss": None,
+        "stopped_early": False,
+        "train_val_gap": [],
+    }
     best_val_loss = float("inf")
+    epochs_without_improvement = 0
 
     print(f"[S5a] Training on {len(train_ds)} conversation-turns, {epochs} epochs ...")
 
@@ -123,13 +155,12 @@ def train_sentence_model(
             if turn_idx == 0:
                 hx = None
 
-            scores, hx = model(features, hx)
-            # Guard against numerical issues that can trigger CUDA asserts in BCELoss.
-            scores = torch.nan_to_num(scores, nan=0.5, posinf=1.0, neginf=0.0)
-            scores = scores.clamp(1e-6, 1.0 - 1e-6)
+            logits, hx = model(features, hx)
+            logits = torch.nan_to_num(logits, nan=0.0, posinf=20.0, neginf=-20.0)
             labels = torch.nan_to_num(labels, nan=0.0, posinf=1.0, neginf=0.0)
             labels = labels.clamp(0.0, 1.0)
-            loss = criterion(scores, labels)
+            loss = criterion(logits, labels)
+            loss = loss + smoothness_weight * _smoothness_loss_from_logits(logits)
 
             # Detach hidden state to avoid backprop through time across turns
             if hx is not None:
@@ -159,28 +190,47 @@ def train_sentence_model(
                     feat, lab = feat.to(device), lab.to(device)
                     if ti == 0:
                         hx = None
-                    scores, hx = model(feat, hx)
-                    scores = torch.nan_to_num(scores, nan=0.5, posinf=1.0, neginf=0.0)
-                    scores = scores.clamp(1e-6, 1.0 - 1e-6)
+                    logits, hx = model(feat, hx)
+                    logits = torch.nan_to_num(logits, nan=0.0, posinf=20.0, neginf=-20.0)
                     lab = torch.nan_to_num(lab, nan=0.0, posinf=1.0, neginf=0.0)
                     lab = lab.clamp(0.0, 1.0)
-                    val_loss += criterion(scores, lab).item()
+                    loss = criterion(logits, lab)
+                    loss = loss + smoothness_weight * _smoothness_loss_from_logits(logits)
+                    val_loss += loss.item()
                     val_n += 1
             avg_val = val_loss / max(val_n, 1)
             history["val_loss"].append(avg_val)
+            history["train_val_gap"].append(avg_val - avg_train)
 
-            if avg_val < best_val_loss:
+            if avg_val < best_val_loss - min_delta:
                 best_val_loss = avg_val
+                history["best_epoch"] = epoch + 1
+                history["best_val_loss"] = avg_val
+                epochs_without_improvement = 0
                 if save_path:
                     Path(save_path).parent.mkdir(parents=True, exist_ok=True)
                     torch.save(model.state_dict(), save_path)
+            else:
+                epochs_without_improvement += 1
 
-        print(f"  Epoch {epoch+1:>3}/{epochs}  train_loss={avg_train:.4f}  val_loss={avg_val:.4f}")
+        print(
+            f"  Epoch {epoch+1:>3}/{epochs}  "
+            f"train_loss={avg_train:.4f}  val_loss={avg_val:.4f}"
+        )
+
+        if val_ds is not None and epochs_without_improvement >= early_stopping_patience:
+            history["stopped_early"] = True
+            print(
+                f"[S5a] Early stopping at epoch {epoch + 1}; "
+                f"best_epoch={history['best_epoch']} best_val_loss={best_val_loss:.4f}"
+            )
+            break
 
     # Save final model if no val set was used
     if save_path and val_ds is None:
         Path(save_path).parent.mkdir(parents=True, exist_ok=True)
         torch.save(model.state_dict(), save_path)
+        history["best_epoch"] = len(history["train_loss"])
 
     print(f"[S5a] Training complete. Model saved to {save_path}")
     return history

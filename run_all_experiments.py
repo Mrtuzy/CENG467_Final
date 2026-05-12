@@ -38,7 +38,7 @@ PRUNER_LABELS = {
     "provence":         "S2: Provence",
     "history_pruning":  "S3: History Pruning",
     "combined":         "S4: Combined",
-    "lnn_sentence":     "S5a: LNN Sentence",
+    "lnn_sentence":     "S5a-v2: Q-LiSP",
     "lnn_token":        "S5b: LNN Token",
 }
 

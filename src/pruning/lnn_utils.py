@@ -5,10 +5,90 @@ import torch
 import numpy as np
 from typing import Optional
 
+LNN_SENTENCE_SCALAR_FEATURES = 7
+
 
 def split_sentences(text: str) -> list[str]:
     """Split text into sentences."""
     return [s.strip() for s in re.split(r"(?<=[.!?])\s+", text) if s.strip()]
+
+
+def lnn_sentence_input_dim(embedding_dim: int) -> int:
+    """Return the Q-LiSP sentence feature width for a given embedding size."""
+    return embedding_dim * 4 + LNN_SENTENCE_SCALAR_FEATURES
+
+
+def build_query_aware_sentence_features(
+    sent_embs: np.ndarray,
+    query_emb: np.ndarray,
+    *,
+    token_counts: Optional[list[int] | np.ndarray] = None,
+    ranks: Optional[list[float] | np.ndarray] = None,
+    retriever_scores: Optional[list[float] | np.ndarray] = None,
+    turn_index: int = 0,
+) -> np.ndarray:
+    """Build Q-LiSP V2 sentence features.
+
+    Features are:
+        sent_emb, query_emb, sent_emb * query_emb, abs(sent_emb - query_emb),
+        cosine, position, recency, length_norm, rank_norm, retriever_score,
+        turn_norm.
+    """
+    sent_embs = np.asarray(sent_embs, dtype=np.float32)
+    query_emb = np.asarray(query_emb, dtype=np.float32)
+    n = sent_embs.shape[0]
+    if n == 0:
+        return np.empty((0, lnn_sentence_input_dim(query_emb.shape[0])), dtype=np.float32)
+
+    q_broadcast = np.tile(query_emb, (n, 1)).astype(np.float32)
+    prod = sent_embs * q_broadcast
+    abs_diff = np.abs(sent_embs - q_broadcast)
+
+    denom = (
+        np.linalg.norm(sent_embs, axis=1, keepdims=True)
+        * np.linalg.norm(q_broadcast, axis=1, keepdims=True)
+        + 1e-8
+    )
+    cosine = np.sum(sent_embs * q_broadcast, axis=1, keepdims=True) / denom
+
+    positions = (np.arange(n, dtype=np.float32).reshape(-1, 1) / max(n - 1, 1))
+    recency = 1.0 - positions
+
+    if token_counts is None:
+        token_counts_arr = np.ones((n, 1), dtype=np.float32)
+    else:
+        token_counts_arr = np.asarray(token_counts, dtype=np.float32).reshape(-1, 1)
+    length_norm = token_counts_arr / max(float(token_counts_arr.max()), 1.0)
+
+    if ranks is None:
+        ranks_arr = np.ones((n, 1), dtype=np.float32)
+    else:
+        ranks_arr = np.asarray(ranks, dtype=np.float32).reshape(-1, 1)
+    rank_norm = 1.0 / np.maximum(ranks_arr, 1.0)
+
+    if retriever_scores is None:
+        retriever_scores_arr = np.zeros((n, 1), dtype=np.float32)
+    else:
+        retriever_scores_arr = np.asarray(retriever_scores, dtype=np.float32).reshape(-1, 1)
+
+    turn_norm = np.full((n, 1), turn_index / 10.0, dtype=np.float32)
+
+    return np.concatenate(
+        [
+            sent_embs,
+            q_broadcast,
+            prod,
+            abs_diff,
+            cosine.astype(np.float32),
+            positions,
+            recency,
+            length_norm,
+            rank_norm,
+            retriever_scores_arr,
+            turn_norm,
+        ],
+        axis=1,
+    ).astype(np.float32)
 
 
 class SentenceEncoder:
@@ -69,7 +149,7 @@ class MultiTurnSimulator:
     def get_supporting_set(self, sample: dict) -> set[tuple[str, int]]:
         sf = sample.get("supporting_facts", {})
         titles = sf.get("title", [])
-        idxs = sf.get("sent_id", [])
+        idxs = sf.get("sent_id", sf.get("sent_idx", []))
         return {(t, i) for t, i in zip(titles, idxs)}
 
     def sentence_labels_for_turn(
@@ -141,11 +221,25 @@ def build_sentence_dataset(
 
             sents = sents[:max_sentences_per_sample]
             labels = labels[:max_sentences_per_sample]
+            titles_idxs = titles_idxs[:max_sentences_per_sample]
+
+            positive_keys = set(turn_info["supporting_facts"])
+            for i, (title, sent_id) in enumerate(titles_idxs):
+                if labels[i] > 0.0:
+                    continue
+                if (title, sent_id - 1) in positive_keys or (title, sent_id + 1) in positive_keys:
+                    labels[i] = 0.4
 
             sent_embs = encoder.encode(sents)  # (n, emb_dim)
-            q_broadcast = np.tile(q_emb, (len(sents), 1))  # (n, emb_dim)
-            turn_feat = np.full((len(sents), 1), turn_idx / 10.0)
-            features = np.concatenate([sent_embs, q_broadcast, turn_feat], axis=1)
+            token_counts = [len(s.split()) for s in sents]
+            features = build_query_aware_sentence_features(
+                sent_embs,
+                q_emb,
+                token_counts=token_counts,
+                ranks=np.ones(len(sents), dtype=np.float32),
+                retriever_scores=np.zeros(len(sents), dtype=np.float32),
+                turn_index=turn_idx,
+            )
 
             all_features.append(torch.tensor(features, dtype=torch.float32))
             all_labels.append(torch.tensor(labels, dtype=torch.float32))
