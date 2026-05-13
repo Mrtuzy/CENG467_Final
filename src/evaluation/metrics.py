@@ -1,5 +1,4 @@
 from collections import Counter
-from bert_score import score as bert_score_fn
 
 
 def exact_match(pred: str, gold: str) -> float:
@@ -28,6 +27,8 @@ def bertscore(preds: list[str], golds: list[str]) -> dict:
     """Compute BERTScore and return P/R/F1."""
     if not preds or not golds:
         return {"precision": 0.0, "recall": 0.0, "f1": 0.0}
+    from bert_score import score as bert_score_fn
+
     P, R, F1 = bert_score_fn(preds, golds, lang="en", verbose=False)
     return {
         "precision": float(P.mean()),
