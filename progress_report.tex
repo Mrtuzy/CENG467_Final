@@ -152,10 +152,10 @@ B3 (RECOMP) and S1 (LLMLingua-2) achieve the highest faithfulness (0.750) with a
 All seven strategies have been evaluated on 50 HotpotQA validation samples using Mistral-7B-Instruct-v0.2. The pipeline runs end-to-end: BM25 retrieval, pruning, generation, and LLM-as-Judge faithfulness scoring. The results confirm that extractive pruning (B3/RECOMP) outperforms hard truncation (B2) on faithfulness, and that Provence's default threshold is too aggressive for multi-hop QA.
 
 \paragraph{Phase 2 (next).}
-The immediate next step is judge calibration: running the LLM-as-Judge on the 50 annotated calibration samples and computing Cohen's $\kappa$ against human faithfulness labels. Target $\kappa \geq 0.6$. If calibration fails, we will revise the decomposition and verification prompts. We also plan to install the \texttt{llmlingua} library to obtain a genuine LLMLingua-2 result rather than the current RECOMP fallback.
+The immediate next step is to run the final Colab reproduction notebook, \texttt{notebooks/05\_final\_colab\_runs.ipynb}. This notebook installs the \texttt{llmlingua} package before evaluating S1, so LLMLingua-2 can no longer be accidentally reported as a RECOMP fallback. The same notebook also creates the human annotation template for judge calibration, computes Cohen's $\kappa$ after labels are filled, and runs S3/S4 under a synthetic two-turn history setting rather than the current single-turn degenerate case.
 
 \paragraph{Phase 3 (final).}
-The final phase will scale to 200 samples per strategy, tune Provence's relevance threshold (currently 0.6, likely too high for multi-hop evidence), and introduce a two-turn conversation history to measure the actual benefit of S3 and S4 over the single-turn baseline. An ablation study on judge prompts and retrieval depth ($k=3$ vs.\ $k=5$) will follow, after which the complete final report will be written.
+The final phase will scale the Colab runs to 200 samples per strategy, tune Provence's relevance threshold (currently 0.6, likely too high for multi-hop evidence), and replace the preliminary S1/S3/S4 rows with notebook-generated results. An ablation study on judge prompts and retrieval depth ($k=3$ vs.\ $k=5$) will follow, after which the complete final report will be written.
 
 \section{Ablation and Prompt Sensitivity Plan}
 \label{sec:ablation}
@@ -184,7 +184,7 @@ The LLM-as-Judge pipeline is powered by Mistral-7B-Instruct, a model that may in
 
 \section{GitHub and Reproducibility Status}
 
-The repository is organized as a modular Python package with clearly separated components for data loading, retrieval, pruning, generation, evaluation, and judge calibration. All seven pruning strategies share a common \texttt{BasePruner} interface and are registered in a central \texttt{PRUNER\_REGISTRY}, enabling the evaluation runner to select any strategy by name. A \texttt{requirements.txt} file pins all dependencies. The \texttt{README.md} contains dataset download and pipeline execution instructions. Commits follow the convention \texttt{feat(SPEC-NNN): description}; all seven specs have been committed. The GitHub link will be added before the final submission.
+The repository is organized as a modular Python package with clearly separated components for data loading, retrieval, pruning, generation, evaluation, and judge calibration. For reproduction, however, the primary execution interface is Google Colab rather than direct local Python commands. The final report will reference the Colab notebooks as the runnable artifacts: \texttt{01\_data\_exploration.ipynb} for dataset checks, \texttt{02\_baseline\_results.ipynb} for small-scale baseline sanity checks, and \texttt{05\_final\_colab\_runs.ipynb} for the final LLMLingua-2, two-turn history, judge calibration, and error-analysis runs. The LNN/CfC work is kept as an exploratory extension in \texttt{03\_lnn\_training\_colab.ipynb} and \texttt{04\_lnn\_evaluation\_colab.ipynb}.
 
 \begin{verbatim}
 rag-faithfulness-pruning/
@@ -193,6 +193,12 @@ rag-faithfulness-pruning/
 |-- README.md
 |-- requirements.txt
 |-- test_pipeline.py
+|-- notebooks/
+|   |-- 01_data_exploration.ipynb
+|   |-- 02_baseline_results.ipynb
+|   |-- 03_lnn_training_colab.ipynb
+|   |-- 04_lnn_evaluation_colab.ipynb
+|   \-- 05_final_colab_runs.ipynb
 |-- data/
 |   |-- raw/          (hotpotqa_train.jsonl, hotpotqa_validation.jsonl)
 |   |-- processed/    (hotpotqa_experiments.jsonl, hotpotqa_calibration.jsonl)
@@ -213,9 +219,9 @@ rag-faithfulness-pruning/
      combined_50samples.jsonl, aggregate_summary.json)
 \end{verbatim}
 
-All seven specs are committed (\texttt{feat(SPEC-001)} through \texttt{feat(SPEC-007)}). Experiment results for all seven strategies (50 samples each) are saved as JSONL files and can be fully reproduced with \texttt{python run\_all\_experiments.py}.
+All seven core pruners are implemented and available through the shared registry. Final reported outputs are reproduced by opening \texttt{notebooks/05\_final\_colab\_runs.ipynb} in a GPU Colab runtime and running the cells from top to bottom. The notebook clones the repository, installs dependencies, downloads HotpotQA, writes JSONL result files under \texttt{experiments/results/}, produces a report-ready aggregate summary, and exports candidate cases for qualitative error analysis.
 
-GitHub repository: \url{https://github.com/[TO BE ADDED]}
+GitHub repository: \url{https://github.com/Mrtuzy/CENG467_Final}
 
 \section{Current Challenges and Next Steps}
 
@@ -224,13 +230,13 @@ The current results surface three concrete challenges. First, Provence's default
 
 \paragraph{Next steps.}
 \begin{enumerate}[nosep]
-    \item Run judge calibration on 50 annotated calibration samples; compute Cohen's $\kappa$ against human faithfulness labels.
+    \item Run \texttt{notebooks/05\_final\_colab\_runs.ipynb} in Colab to obtain genuine LLMLingua-2 results and verify that the fallback counter is zero.
+    \item Use the same notebook to evaluate S3 and S4 with synthetic two-turn history rather than empty single-turn history.
+    \item Fill the generated \texttt{human\_labels.jsonl} file for at least 20, preferably 50, calibration examples and compute Cohen's $\kappa$.
     \item Tune Provence relevance threshold (try 0.3, 0.4) to obtain a compression ratio in the 0.4--0.6 range rather than 0.07.
-    \item Install \texttt{llmlingua} and re-run S1 to obtain genuine LLMLingua-2 results.
-    \item Introduce two-turn conversation history to evaluate S3 and S4 beyond the single-turn degenerate case.
-    \item Scale to 200 samples per strategy after threshold and prompt calibration.
-    \item Conduct ablation study on judge prompts, retrieval depth ($k=3$ vs.\ $k=5$), and generation verbosity.
-    \item Perform manual error analysis on 20--30 failure cases per strategy and write the final report.
+    \item Scale the notebook configuration from 50 to 200 samples per strategy after threshold and prompt calibration.
+    \item Use the notebook's exported \texttt{error\_analysis\_candidates.jsonl} file to add concrete qualitative examples to the final report.
+    \item Keep LNN/CfC pruning as future work: a lightweight adaptive controller could choose pruning aggressiveness dynamically from query complexity, retrieval redundancy, and history overlap.
 \end{enumerate}
 
 \begin{thebibliography}{10}

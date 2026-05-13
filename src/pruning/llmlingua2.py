@@ -8,6 +8,7 @@ class LLMLingua2Pruner(BasePruner):
         super().__init__()
         self.compression_rate = compression_rate
         self._compressor = None
+        self.fallback_used = False
 
     def _load_compressor(self) -> None:
         if self._compressor is not None:
@@ -27,16 +28,28 @@ class LLMLingua2Pruner(BasePruner):
 
         if self._compressor is None:
             # Fallback to RECOMP if llmlingua not available
+            self.fallback_used = True
             from .recomp import RecompPruner
             fallback = RecompPruner()
             result = fallback.prune(passages, query, max_tokens)
             self._last_output_tokens = sum(len(p["passage"].split()) for p in result)
             return result
 
-        compressed = self._compressor.compress_prompt(
+        self.fallback_used = False
+        compressed_result = self._compressor.compress_prompt(
             combined,
             target_token=int(self._last_input_tokens * self.compression_rate),
         )
+        if isinstance(compressed_result, dict):
+            compressed = (
+                compressed_result.get("compressed_prompt")
+                or compressed_result.get("compressed")
+                or ""
+            )
+        else:
+            compressed = str(compressed_result)
+        if not compressed:
+            raise RuntimeError("LLMLingua-2 returned an empty compressed prompt.")
         self._last_output_tokens = len(compressed.split())
 
         return [{

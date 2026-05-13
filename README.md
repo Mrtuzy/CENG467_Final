@@ -8,6 +8,8 @@ Team:
 - Mert Güden — 300201013
 - Berkay Fehmi Tekin — 300201090
 
+Repository: https://github.com/Mrtuzy/CENG467_Final
+
 ---
 
 ## Dataset
@@ -45,14 +47,28 @@ pip install -r requirements.txt
 
 ---
 
-## Running the Pipeline
+## Colab Reproducibility
+
+The experiments are designed to be run in Google Colab rather than on a local laptop.
+Use the notebooks below as the primary reproduction path:
+
+1. `notebooks/01_data_exploration.ipynb` — dataset loading and sanity checks
+2. `notebooks/02_baseline_results.ipynb` — baseline dry-run / small-scale checks
+3. `notebooks/05_final_colab_runs.ipynb` — final gap-closing runs:
+   - real LLMLingua-2 with the `llmlingua` package installed
+   - synthetic two-turn history pruning for S3/S4
+   - LLM-as-Judge calibration template and Cohen's kappa computation
+   - qualitative error-analysis candidate export
+4. `notebooks/03_lnn_training_colab.ipynb` and `notebooks/04_lnn_evaluation_colab.ipynb` — optional LNN/CfC-oriented exploratory extension
+
+Open `05_final_colab_runs.ipynb` in a GPU Colab runtime and run the cells from top to bottom.
+It clones this repository, installs dependencies, downloads HotpotQA, and writes final outputs to `experiments/results/`.
+
+## Local Smoke Tests
 
 ```bash
-# Run full evaluation for one strategy
-python src/evaluation/runner.py --pruner no_pruning --output experiments/results/b1_no_pruning.jsonl
-
-# Compare all baselines
-python src/evaluation/runner.py --all --output experiments/results/
+# Optional local sanity check only; final reported runs are produced in Colab notebooks.
+python test_pipeline.py
 ```
 
 ---
