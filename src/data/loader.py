@@ -25,7 +25,12 @@ def load_hotpotqa(split: str, n_samples: int = None) -> list[dict]:
     """
     from datasets import load_dataset
 
-    dataset = load_dataset("hotpot_qa", "distractor", split=split)
+    dataset = load_dataset(
+        "hotpot_qa",
+        "distractor",
+        split=split,
+        trust_remote_code=True,
+    )
 
     samples = []
     for item in dataset:
