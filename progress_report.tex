@@ -118,14 +118,19 @@ S4 & Provence + History (combined) & Combined & \textbf{Complete} \\
 
 B1 serves as the upper-bound noise reference: providing the full retrieved context gives the generator the maximum available evidence but also exposes it to all distractor content. B2 is justified as the standard engineering fallback in production RAG systems where latency budgets constrain context length. B3 bridges the gap between simple truncation and learned compression by selecting sentences that lexically overlap with the query, serving as the extractive prior-work baseline. S1 (LLMLingua-2) and S2 (Provence) represent the current state of the art in token-level and sentence-level compression respectively. S3 (history pruning) addresses a limitation of static pruners by removing passages that overlap with information already surfaced in prior conversational turns. S4 (combined) chains Provence followed by history pruning, aiming to benefit from both semantic filtering and redundancy removal.
 
-\section{Initial Experimental Results}
 
-All seven pruning strategies have been evaluated end-to-end on 50 HotpotQA validation samples using Mistral-7B-Instruct-v0.2 as both the generator and the LLM-as-Judge, running on an NVIDIA RTX 5060 Ti GPU (17.1\,GB VRAM). The model is loaded once and shared between the generator and judge to avoid memory pressure. Each sample passes through BM25 retrieval ($k=5$), the selected pruner, Mistral-7B generation, and atomic claim scoring. Results are reported in Table~\ref{tab:results}.
+\section{Experimental Results}
+
+All reported experiments were reproduced in Google Colab notebooks. Notebook~2 provides a baseline sanity run over 50 HotpotQA validation samples for the original seven-pruner comparison. Notebook~5 provides the final gap-closing runs on a held-out 50-sample slice (validation indices 600--649), specifically targeting the issues identified in the progress report: genuine LLMLingua-2 execution, non-empty two-turn history pruning, and qualitative error-analysis exports. In both notebooks, Mistral-7B-Instruct-v0.2 is used as the generator and as the LLM-as-Judge, with the loaded model shared between generation and judging when possible.
+
+\subsection{Baseline Colab Run}
+
+Table~\ref{tab:baseline-results} summarizes the Notebook~2 baseline run. This run is useful as the broad seven-pruner reference point and confirms the expected preliminary pattern: RECOMP improves faithfulness over hard truncation, while Provence's default threshold is very aggressive for multi-hop HotpotQA.
 
 \begin{table}[H]
 \centering
-\caption{Experimental Results --- 50 HotpotQA validation samples, Mistral-7B-Instruct-v0.2}
-\label{tab:results}
+\caption{Notebook 2 baseline results --- 50 HotpotQA validation samples, Mistral-7B-Instruct-v0.2}
+\label{tab:baseline-results}
 \begin{tabular}{lccccr}
 \toprule
 \textbf{Strategy} & \textbf{Faithfulness} & \textbf{EM} & \textbf{F1} & \textbf{Comp. Ratio} & \textbf{Lat. (s)} \\
@@ -133,29 +138,50 @@ All seven pruning strategies have been evaluated end-to-end on 50 HotpotQA valid
 B1: No Pruning       & 0.718 & 0.040 & 0.148 & 1.000 & 6.76 \\
 B2: Naive Truncation & 0.621 & 0.040 & 0.139 & 0.918 & 4.95 \\
 B3: RECOMP           & \textbf{0.750} & 0.040 & 0.141 & 0.911 & 5.38 \\
-S1: LLMLingua-2      & \textbf{0.750} & 0.040 & 0.141 & 0.911 & 5.38 \\
+S1: LLMLingua-2 (fallback) & \textbf{0.750} & 0.040 & 0.141 & 0.911 & 5.38 \\
 S2: Provence         & 0.657 & 0.000 & 0.057 & \textbf{0.072} & \textbf{4.49} \\
-S3: History Pruning  & 0.718 & 0.040 & 0.148 & 1.000 & 6.34 \\
-S4: Combined         & 0.657 & 0.000 & 0.057 & \textbf{0.072} & \textbf{4.48} \\
+S3: History (empty) & 0.718 & 0.040 & 0.148 & 1.000 & 6.34 \\
+S4: Combined (empty) & 0.657 & 0.000 & 0.057 & \textbf{0.072} & \textbf{4.48} \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\noindent\textit{Note:} Faithfulness = fraction of atomic claims supported by context (LLM-as-Judge, Mistral-7B). EM = Exact Match vs.\ gold answer. Comp.\ Ratio = pruned tokens / original tokens ($n=50$ samples per strategy).
+\noindent\textit{Note:} The S1 row in Table~\ref{tab:baseline-results} is retained only as a historical baseline artifact: in this run LLMLingua-2 fell back to the RECOMP implementation, which explains the identical S1/B3 scores. Similarly, S3 and S4 use empty history and therefore represent degenerate single-turn cases.
 
-\paragraph{Key observations.}
-B3 (RECOMP) and S1 (LLMLingua-2) achieve the highest faithfulness (0.750) with a compression ratio of 0.911, confirming that query-aligned sentence selection retains more supporting content than hard cutoff. S1 results are identical to B3 because the \texttt{llmlingua} library was not available in the current environment and S1 fell back to the RECOMP scoring function; a proper LLMLingua-2 run with the library installed is planned. B2 (Naive Truncation) has the lowest faithfulness (0.621), consistent with the hypothesis that blind hard cutoff removes supporting sentences. S2 (Provence) achieves the most aggressive compression (ratio 0.072, retaining only 7\% of context tokens) but at a significant cost: faithfulness drops to 0.657 and token F1 collapses to 0.057, indicating that the default relevance threshold is too aggressive for HotpotQA's multi-hop structure where evidence spans multiple passages. S3 (History Pruning) with no conversation history is identical to B1 by design; S4 (Combined) is identical to S2 for the same reason. EM scores are uniformly low (0.040 or 0.000) because Mistral-7B generates verbose explanatory answers rather than extracting the short gold span, which is a known behaviour of instruction-tuned models on extractive QA benchmarks.
+\subsection{Final Gap-Closing Colab Run}
 
-\section{Planned Improvements and Technical Direction}
+Notebook~5 re-ran the problematic strategies under corrected conditions. LLMLingua-2 was executed with the \texttt{llmlingua} package and \texttt{use\_llmlingua2=True}; the recorded fallback counter is zero. History pruning and combined pruning were evaluated with synthetic two-turn history rather than empty history. Table~\ref{tab:gap-results} reports these results, including supporting-fact coverage and noise ratio to make pruning failures visible beyond faithfulness alone.
 
-\paragraph{Phase 1 (complete).}
-All seven strategies have been evaluated on 50 HotpotQA validation samples using Mistral-7B-Instruct-v0.2. The pipeline runs end-to-end: BM25 retrieval, pruning, generation, and LLM-as-Judge faithfulness scoring. The results confirm that extractive pruning (B3/RECOMP) outperforms hard truncation (B2) on faithfulness, and that Provence's default threshold is too aggressive for multi-hop QA.
+\begin{table}[H]
+\centering
+\caption{Notebook 5 final gap-closing results --- 50 held-out HotpotQA validation samples (indices 600--649)}
+\label{tab:gap-results}
+\begin{tabular}{lcccccc}
+\toprule
+\textbf{Strategy} & \textbf{Faith.} & \textbf{EM} & \textbf{F1} & \textbf{Comp.} & \textbf{Coverage} & \textbf{Noise} \\
+\midrule
+B3: RECOMP & 0.648 & 0.080 & 0.195 & 0.962 & 0.760 & 0.624 \\
+S1: LLMLingua-2 (real) & \textbf{0.711} & 0.040 & 0.167 & 0.457 & 0.000 & 0.792 \\
+S3: History (two-turn) & 0.533 & \textbf{0.100} & \textbf{0.214} & 0.962 & 0.627 & 0.641 \\
+S4: Combined (two-turn) & 0.530 & 0.040 & 0.112 & \textbf{0.081} & 0.222 & \textbf{0.284} \\
+\bottomrule
+\end{tabular}
+\end{table}
 
-\paragraph{Phase 2 (next).}
-The immediate next step is to run the final Colab reproduction notebook, \texttt{notebooks/05\_final\_colab\_runs.ipynb}. This notebook installs the \texttt{llmlingua} package before evaluating S1, so LLMLingua-2 can no longer be accidentally reported as a RECOMP fallback. The same notebook also creates the human annotation template for judge calibration, computes Cohen's $\kappa$ after labels are filled, and runs S3/S4 under a synthetic two-turn history setting rather than the current single-turn degenerate case.
+The corrected LLMLingua-2 result is no longer identical to RECOMP: it compresses much more aggressively (0.457 vs. 0.962) and obtains higher judge faithfulness (0.711 vs. 0.648), but its supporting-fact coverage metric is 0.000 under our exact/fuzzy retained-sentence check. This indicates that LLMLingua-2 often rewrites or fragments evidence in a way that can still support model answers but no longer preserves gold supporting sentences verbatim. Two-turn history pruning does change behaviour relative to the empty-history case, but on this slice it reduces faithfulness to 0.533, suggesting that the current novelty-only redundancy score can discard useful repeated evidence. The combined Provence+History setting is the most compact (0.081) and lowest-noise (0.284), but the low coverage (0.222) confirms that the current Provence threshold remains too aggressive for multi-hop QA.
 
-\paragraph{Phase 3 (final).}
-The final phase will scale the Colab runs to 200 samples per strategy, tune Provence's relevance threshold (currently 0.6, likely too high for multi-hop evidence), and replace the preliminary S1/S3/S4 rows with notebook-generated results. An ablation study on judge prompts and retrieval depth ($k=3$ vs.\ $k=5$) will follow, after which the complete final report will be written.
+\section{Completed Improvements and Technical Direction}
+
+\paragraph{Completed.}
+The final Colab workflow now addresses three of the major report weaknesses. First, the GitHub repository link is fixed and the report references the notebooks rather than local Python commands. Second, LLMLingua-2 is evaluated as a genuine LLMLingua-2 run with zero fallback cases. Third, S3 and S4 are evaluated with synthetic two-turn history, so history pruning is no longer reported only in the single-turn degenerate setting. Notebook~5 also exports \texttt{error\_analysis\_candidates.jsonl}, which provides concrete examples for qualitative analysis.
+
+\paragraph{Remaining.}
+LLM-as-Judge calibration is scaffolded but not yet fully completed in the checked-in artifacts: Notebook~5 creates the annotation template and calibration computation cells, but no filled \texttt{human\_labels.jsonl} or resulting Cohen's $\kappa$ file is present in the repository output folders. This should be treated as remaining work rather than claimed as completed. Provence threshold tuning also remains important because both S2 and S4 show very low compression ratios and supporting-fact coverage under the default threshold.
+
+\paragraph{Future extension.}
+The LNN/CfC direction is not yet a completed experimental contribution. We implemented exploratory Colab notebooks for LNN-style sentence/token pruning, but the training and evaluation loop has not reached a stable enough point to support quantitative claims in this report. We therefore position Liquid Neural Networks and Closed-form Continuous-time (CfC) models as future adaptive pruning controllers. The intended role is to choose pruning aggressiveness dynamically from query complexity, retrieval redundancy, and history overlap, instead of relying on a fixed Provence threshold or a purely lexical history novelty score. This direction is especially relevant for multi-turn QA, where evidence importance changes across turns.
+
+A second future extension is dataset breadth. HotpotQA is useful for multi-hop distractor QA, but it does not fully represent conversational retrieval behaviour. Future experiments should add conversational QA benchmarks such as QuAC and QReCC-style query rewriting / conversational context datasets, where history pruning can be evaluated against naturally occurring dialogue context rather than synthetic two-turn histories.
 
 \section{Ablation and Prompt Sensitivity Plan}
 \label{sec:ablation}
@@ -172,11 +198,24 @@ We plan a targeted set of ablation experiments to isolate the contribution of in
 
 These ablations are designed to answer whether the faithfulness gains from advanced pruners are attributable to the compression strategy itself or to incidental factors such as prompt wording or retrieval depth.
 
+
 \section{Error Analysis and Generation Quality}
 
-Inspection of the 50-sample outputs reveals consistent error patterns. Mistral-7B-Instruct generates verbose multi-sentence explanations rather than short gold spans, resulting in EM scores that cluster near zero even when the answer is factually correct. For yes/no questions the model states the correct binary value but embeds it in a paragraph of reasoning, which EM cannot credit. For multi-hop factual questions the model occasionally conflates entities from different retrieved passages, producing a fluent but incorrect answer; this suggests the generator does not consistently weight the highest-ranked passage.
+Notebook~5 exports concrete error-analysis candidates rather than only a category plan. The observed errors fall into four recurring groups.
 
-The most systematic error pattern occurs with Provence (S2): the 0.072 compression ratio indicates that the default relevance threshold (0.6) removes both supporting passages for multi-hop questions, leaving the model with context insufficient for chain-of-thought reasoning. Errors will be categorized into: (a) \textit{retrieval failure} --- supporting passage absent from top-$k$; (b) \textit{pruning error} --- supporting sentence removed by pruner; (c) \textit{generation error} --- model ignores available evidence; (d) \textit{judge error} --- supported claim marked unsupported due to paraphrase mismatch. We plan to annotate 20--30 failure cases per strategy before the final submission to quantify each error type.
+\paragraph{Pruning removes supporting evidence.}
+For the question ``The song Arizona was recorded by Paul Revere and Mark Lindsay but who wrote the song?'', the gold answer is \textit{Kenny Young}. Under the real LLMLingua-2 run, the generated answer is ``I don't know,'' and supporting-fact coverage is 0.000. The exported supporting sentence explicitly states that ``Arizona'' was written by Kenny Young, so this is a clear pruning/coverage failure. RECOMP and two-turn history pruning also partially lose evidence on the same example (coverage 0.5), although RECOMP still produces the correct entity.
+
+\paragraph{Exact match under-credits verbose but correct answers.}
+For the yes/no question ``Are both Parodia and Thalictrum flowering plants?'', S4 generates: ``Yes, both Parodia and Thalictrum are flowering plants,'' followed by a short explanation. Faithfulness is 1.0 and coverage is 1.0, but EM is 0.0 because the gold answer is simply \textit{yes}. This confirms that EM is a poor primary metric for instruction-tuned generators that produce explanatory answers.
+
+\paragraph{Judge failures occur on short supported answers.}
+For the Watercliffe Meadow question, the history-pruning run generates exactly \textit{Political correctness}; EM and F1 are both 1.0, coverage is 1.0, but the judge faithfulness score is 0.0. This is likely an LLM-as-Judge false negative caused by the answer being a short phrase rather than a full claim. This case motivates the remaining calibration work.
+
+\paragraph{Near-miss entity generation.}
+For the ``Black Maverick'' biography question, RECOMP retrieves evidence for \textit{T. R. M. Howard}, but the generator outputs \textit{T. M. Howard}. Token F1 remains high (0.857), but EM is 0.0 and faithfulness is 0.0. This illustrates a generation-level entity omission error: the context contains the answer, but the generated string drops an initial.
+
+Overall, the strongest pattern is that faithfulness, EM/F1, and supporting-fact coverage measure different failure modes. LLMLingua-2 obtains the best faithfulness in the final gap-closing run, but its zero retained-sentence coverage indicates that the coverage metric is too strict for compressed/rephrased contexts or that LLMLingua-2 is removing gold evidence while retaining enough related context for the generator. Conversely, some exact or semantically correct answers receive low judge scores, so calibration remains necessary before treating judge faithfulness as a standalone ground truth.
 
 \section{Ethical Considerations and Bias}
 
@@ -184,7 +223,7 @@ The LLM-as-Judge pipeline is powered by Mistral-7B-Instruct, a model that may in
 
 \section{GitHub and Reproducibility Status}
 
-The repository is organized as a modular Python package with clearly separated components for data loading, retrieval, pruning, generation, evaluation, and judge calibration. For reproduction, however, the primary execution interface is Google Colab rather than direct local Python commands. The final report will reference the Colab notebooks as the runnable artifacts: \texttt{01\_data\_exploration.ipynb} for dataset checks, \texttt{02\_baseline\_results.ipynb} for small-scale baseline sanity checks, and \texttt{05\_final\_colab\_runs.ipynb} for the final LLMLingua-2, two-turn history, judge calibration, and error-analysis runs. The LNN/CfC work is kept as an exploratory extension in \texttt{03\_lnn\_training\_colab.ipynb} and \texttt{04\_lnn\_evaluation\_colab.ipynb}.
+The repository is organized as a modular Python package with clearly separated components for data loading, retrieval, pruning, generation, evaluation, and judge calibration. For reproduction, however, the primary execution interface is Google Colab rather than direct local Python commands. The final report will reference the Colab notebooks as the runnable artifacts: \texttt{01\_data\_exploration.ipynb} for dataset checks, \texttt{02\_baseline\_results.ipynb} for small-scale baseline sanity checks, and \texttt{05\_final\_colab\_runs.ipynb} for the final LLMLingua-2, two-turn history, judge calibration, and error-analysis runs. The LNN/CfC notebooks are kept as exploratory artifacts rather than completed result notebooks.
 
 \begin{verbatim}
 rag-faithfulness-pruning/
@@ -212,30 +251,29 @@ rag-faithfulness-pruning/
 |   |-- judge/        (judge.py, prompts.py, calibration.py)
 |   \-- evaluation/   (runner.py, metrics.py)
 \-- experiments/results/
-    (no_pruning_50samples.jsonl, naive_truncation_50samples.jsonl,
-     recomp_50samples.jsonl, llmlingua2_50samples.jsonl,
-     provence_50samples.jsonl, history_pruning_50samples.jsonl,
-     combined_50samples.jsonl, aggregate_summary.json)
+    |-- notebook2/   (baseline aggregate summary and sanity outputs)
+    \-- notebook5/   (final gap-closing JSONL files, summary, error cases)
 \end{verbatim}
 
 All seven core pruners are implemented and available through the shared registry. Final reported outputs are reproduced by opening \texttt{notebooks/05\_final\_colab\_runs.ipynb} in a GPU Colab runtime and running the cells from top to bottom. The notebook clones the repository, installs dependencies, downloads HotpotQA, writes JSONL result files under \texttt{experiments/results/}, produces a report-ready aggregate summary, and exports candidate cases for qualitative error analysis.
 
 GitHub repository: \url{https://github.com/Mrtuzy/CENG467_Final}
 
+
 \section{Current Challenges and Next Steps}
 
 \paragraph{Challenges.}
-The current results surface three concrete challenges. First, Provence's default relevance threshold (0.6) is too aggressive for multi-hop QA: by retaining only 7.2\% of context tokens it systematically discards at least one of the two required supporting passages, causing faithfulness (0.657) and F1 (0.057) to degrade below even the no-pruning baseline. Threshold tuning is required before S2 and S4 can be fairly evaluated. Second, S1 (LLMLingua-2) falls back to the RECOMP scoring function because the \texttt{llmlingua} library is not yet installed, making S1 and B3 results identical; a proper S1 evaluation requires installing and configuring the library. Third, Mistral-7B generates verbose explanatory answers rather than short gold-matching spans, causing EM scores to cluster at 0.040 across all strategies; future runs will add a post-hoc answer extraction step (e.g., prompting the model to output only the final answer token) to obtain more meaningful EM values.
+The final Colab results surface three concrete challenges. First, aggressive compression still creates a coverage--faithfulness tension. Real LLMLingua-2 obtains the highest faithfulness in the gap-closing run (0.711) with a much lower compression ratio (0.457), but the supporting-fact coverage metric drops to 0.000, suggesting either evidence loss or a mismatch between sentence-preservation metrics and token-level compressed contexts. Second, Provence-based compression remains too aggressive under the default threshold: the combined two-turn run keeps only 8.1\% of tokens and has low coverage (0.222), even though its retained context has the lowest noise ratio. Third, the judge still produces questionable scores on some short answers, including cases where EM/F1 are perfect but faithfulness is 0.0. This makes human calibration the most important remaining validation step.
 
 \paragraph{Next steps.}
 \begin{enumerate}[nosep]
-    \item Run \texttt{notebooks/05\_final\_colab\_runs.ipynb} in Colab to obtain genuine LLMLingua-2 results and verify that the fallback counter is zero.
-    \item Use the same notebook to evaluate S3 and S4 with synthetic two-turn history rather than empty single-turn history.
-    \item Fill the generated \texttt{human\_labels.jsonl} file for at least 20, preferably 50, calibration examples and compute Cohen's $\kappa$.
-    \item Tune Provence relevance threshold (try 0.3, 0.4) to obtain a compression ratio in the 0.4--0.6 range rather than 0.07.
-    \item Scale the notebook configuration from 50 to 200 samples per strategy after threshold and prompt calibration.
-    \item Use the notebook's exported \texttt{error\_analysis\_candidates.jsonl} file to add concrete qualitative examples to the final report.
-    \item Keep LNN/CfC pruning as future work: a lightweight adaptive controller could choose pruning aggressiveness dynamically from query complexity, retrieval redundancy, and history overlap.
+    \item Complete LLM-as-Judge calibration by filling \texttt{human\_labels.jsonl} for at least 20--50 examples and reporting Cohen's $\kappa$.
+    \item Tune Provence's threshold (e.g., 0.3 and 0.4) and re-run S2/S4 to target a less destructive compression ratio around 0.4--0.6.
+    \item Add a compression-aware LLMLingua-2 coverage metric; exact retained-sentence coverage is too brittle for token-level compression.
+    \item Scale the corrected Notebook~5 configuration from 50 to 200 samples after calibration and threshold tuning.
+    \item Improve answer formatting by prompting the generator for a concise final answer, then report EM/F1 both before and after answer extraction.
+    \item Stabilize the exploratory LNN/CfC notebooks before making quantitative claims; the next target is an adaptive pruning controller that chooses compression strength from query complexity, retrieval redundancy, and history overlap.
+    \item Extend evaluation beyond HotpotQA to conversational QA datasets such as QuAC and QReCC-style benchmarks, where history pruning can be tested on natural dialogue histories rather than synthetic two-turn context.
 \end{enumerate}
 
 \begin{thebibliography}{10}

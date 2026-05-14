@@ -1,0 +1,62 @@
+[
+  {
+    "run_label": "B3: RECOMP",
+    "pruner": "recomp",
+    "n_samples": 50,
+    "output_path": "experiments/results/recomp_50samples_final.jsonl",
+    "llmlingua_fallback_count": 0,
+    "faithfulness_mean": 0.6483333333333333,
+    "em_mean": 0.08,
+    "f1_mean": 0.19535676736397017,
+    "compression_ratio_mean": 0.9620675177783363,
+    "latency_s_mean": 1.51781174659729,
+    "coverage_mean": 0.76,
+    "noise_ratio_mean": 0.6236628841984813,
+    "coverage_noise_f1_mean": 0.4772847949215098
+  },
+  {
+    "run_label": "S1: LLMLingua-2 real",
+    "pruner": "llmlingua2",
+    "n_samples": 50,
+    "output_path": "experiments/results/llmlingua2_50samples_final.jsonl",
+    "llmlingua_fallback_count": 0,
+    "faithfulness_mean": 0.711,
+    "em_mean": 0.04,
+    "f1_mean": 0.16743565469011487,
+    "compression_ratio_mean": 0.45688965074398796,
+    "latency_s_mean": 3.1712836170196534,
+    "coverage_mean": 0.0,
+    "noise_ratio_mean": 0.7919472368229925,
+    "coverage_noise_f1_mean": 0.0
+  },
+  {
+    "run_label": "S3: History Pruning two-turn",
+    "pruner": "history_pruning",
+    "n_samples": 50,
+    "output_path": "experiments/results/history_pruning_50samples_twoturn.jsonl",
+    "llmlingua_fallback_count": 0,
+    "faithfulness_mean": 0.5333333333333333,
+    "em_mean": 0.1,
+    "f1_mean": 0.2144328111074286,
+    "compression_ratio_mean": 0.9622274218127044,
+    "latency_s_mean": 1.4351328325271606,
+    "coverage_mean": 0.6266666666666666,
+    "noise_ratio_mean": 0.6405357461975304,
+    "coverage_noise_f1_mean": 0.405417596765619
+  },
+  {
+    "run_label": "S4: Combined two-turn",
+    "pruner": "combined",
+    "n_samples": 50,
+    "output_path": "experiments/results/combined_50samples_twoturn.jsonl",
+    "llmlingua_fallback_count": 0,
+    "faithfulness_mean": 0.53,
+    "em_mean": 0.04,
+    "f1_mean": 0.11244557041797586,
+    "compression_ratio_mean": 0.08095962627450567,
+    "latency_s_mean": 4.187799010276795,
+    "coverage_mean": 0.22166666666666665,
+    "noise_ratio_mean": 0.2843659647386453,
+    "coverage_noise_f1_mean": 0.25488489345667803
+  }
+]

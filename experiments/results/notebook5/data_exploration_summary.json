@@ -1,0 +1,8 @@
+{
+  "experiment_samples": 200,
+  "calibration_samples": 50,
+  "avg_question_len_words": 16.635,
+  "avg_answer_len_words": 2.405,
+  "avg_context_len_tokens": 909.57,
+  "avg_supporting_facts": 2.435
+}
