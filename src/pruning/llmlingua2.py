@@ -4,9 +4,14 @@ from .base import BasePruner
 class LLMLingua2Pruner(BasePruner):
     """Token-level compression using LLMLingua-2."""
 
-    def __init__(self, compression_rate: float = 0.5):
+    def __init__(
+        self,
+        compression_rate: float = 0.5,
+        model_name: str = "microsoft/llmlingua-2-bert-base-multilingual-cased-meetingbank",
+    ):
         super().__init__()
         self.compression_rate = compression_rate
+        self.model_name = model_name
         self._compressor = None
         self.fallback_used = False
 
@@ -15,7 +20,10 @@ class LLMLingua2Pruner(BasePruner):
             return
         try:
             from llmlingua import PromptCompressor
-            self._compressor = PromptCompressor()
+            self._compressor = PromptCompressor(
+                model_name=self.model_name,
+                use_llmlingua2=True,
+            )
         except ImportError:
             pass
 
@@ -38,7 +46,8 @@ class LLMLingua2Pruner(BasePruner):
         self.fallback_used = False
         compressed_result = self._compressor.compress_prompt(
             combined,
-            target_token=int(self._last_input_tokens * self.compression_rate),
+            rate=self.compression_rate,
+            force_tokens=["\n", ".", "?", "!"],
         )
         if isinstance(compressed_result, dict):
             compressed = (
