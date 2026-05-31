@@ -1,106 +1,112 @@
-import os
-import torch
+"""
+Faz 2 – Öğretmen Model ile Altın Standart Etiketleme
+=====================================================
+LLaMA-3-8B-Instruct'ı 4-bit quantization ile yükler.
+Her diyalogdaki her cümle için leave-one-out KL-Divergence
+yaklaşımı ile önem skoru (p_target) hesaplar ve tensör olarak
+Google Drive'a kaydeder.
+
+Kullanım:
+    python src/teacher_labeling.py [--smoke_test]
+"""
+import os, sys, torch
 import torch.nn.functional as F
+from tqdm import tqdm
 from datasets import load_from_disk
 from transformers import AutoModelForCausalLM, AutoTokenizer
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from config import get_args, DATA_DIR, OUTPUT_DIR, TEACHER_MODEL_NAME
-from tqdm import tqdm
 
-def format_prompt(context_list, question):
-    prompt = "<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\nYou are a helpful AI assistant.<|eot_id|>"
-    prompt += "<|start_header_id|>user<|end_header_id|>\n\n"
+
+def _build_prompt(context_list, question):
+    """Build a LLaMA-3 chat prompt."""
+    p  = "<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\n"
+    p += "You are a helpful AI assistant.<|eot_id|>"
+    p += "<|start_header_id|>user<|end_header_id|>\n\n"
     if context_list:
-        prompt += "Conversation history:\n"
+        p += "Conversation history:\n"
         for i, turn in enumerate(context_list):
-            prompt += f"Turn {i+1}: {turn}\n"
-        prompt += "\n"
-    prompt += f"Question: {question}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n"
-    return prompt
+            p += f"Turn {i+1}: {turn}\n"
+        p += "\n"
+    p += f"Question: {question}<|eot_id|>"
+    p += "<|start_header_id|>assistant<|end_header_id|>\n\n"
+    return p
 
-def calculate_divergence(logits_base, logits_ablated):
-    # Compare the distribution of the next predicted token (last token in prompt)
-    probs_base = F.softmax(logits_base[:, -1, :], dim=-1)
-    log_probs_ablated = F.log_softmax(logits_ablated[:, -1, :], dim=-1)
-    # KL(P || Q) = sum(P * log(P/Q))
-    kl_div = F.kl_div(log_probs_ablated, probs_base, reduction='batchmean')
-    return kl_div.item()
 
-def generate_teacher_labels(smoke_test=False):
+def _kl_div(logits_base, logits_ablated):
+    """KL-divergence between last-token distributions."""
+    p = F.softmax(logits_base[:, -1, :], dim=-1)
+    log_q = F.log_softmax(logits_ablated[:, -1, :], dim=-1)
+    return F.kl_div(log_q, p, reduction="batchmean").item()
+
+
+def generate_teacher_labels(smoke_test: bool = False):
     train_path = os.path.join(DATA_DIR, "train_processed")
     if not os.path.exists(train_path):
-        raise FileNotFoundError(f"Processed data not found at {train_path}. Run data_prep.py first.")
-    
+        raise FileNotFoundError(f"{train_path} bulunamadı. Önce data_prep.py çalıştırın.")
+
     train_ds = load_from_disk(train_path)
     if smoke_test:
-        print("SMOKE TEST enabled: evaluating 5 examples.")
-        train_ds = train_ds.select(range(min(5, len(train_ds))))
-        
-    print(f"Loading Teacher Model: {TEACHER_MODEL_NAME}")
-    try:
-        tokenizer = AutoTokenizer.from_pretrained(TEACHER_MODEL_NAME)
-        # 4-bit loading requires bitsandbytes and accelerate
-        model = AutoModelForCausalLM.from_pretrained(
-            TEACHER_MODEL_NAME,
-            device_map="auto",
-            load_in_4bit=True,
-            torch_dtype=torch.float16
-        )
-        model.eval()
-    except Exception as e:
-        print(f"Could not load teacher model: {e}")
-        print("Ensure you have a HuggingFace token set and access to LLaMA-3.")
-        raise e
+        n = min(5, len(train_ds))
+        print(f"[SMOKE TEST] Sadece {n} örnek işlenecek.")
+        train_ds = train_ds.select(range(n))
 
-    all_targets = []
+    # ---- model yükleme ----
+    print(f"Öğretmen model yükleniyor: {TEACHER_MODEL_NAME}")
+    tokenizer = AutoTokenizer.from_pretrained(TEACHER_MODEL_NAME)
+    model = AutoModelForCausalLM.from_pretrained(
+        TEACHER_MODEL_NAME,
+        device_map="auto",
+        load_in_4bit=True,
+        torch_dtype=torch.float16,
+    )
+    model.eval()
+
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-    
-    print("Calculating teacher labels via leave-one-out...")
-    for idx, example in enumerate(tqdm(train_ds)):
-        context = example['context']
-        question = example['question']
-        
-        # Skip if no context
+    all_targets = []
+
+    print("Leave-one-out etiketleme başlatılıyor …")
+    for example in tqdm(train_ds):
+        context  = example["context"]
+        question = example["question"]
+
         if not context:
             all_targets.append(torch.tensor([], dtype=torch.float32))
             continue
-            
-        base_prompt = format_prompt(context, question)
-        inputs = tokenizer(base_prompt, return_tensors="pt").to(model.device)
-        
-        with torch.no_grad():
-            outputs_base = model(**inputs)
-            logits_base = outputs_base.logits
-            
-        dialogue_scores = []
-        for i in range(len(context)):
-            # Ablate utterance i
-            ablated_context = context[:i] + context[i+1:]
-            ablated_prompt = format_prompt(ablated_context, question)
-            inputs_ablated = tokenizer(ablated_prompt, return_tensors="pt").to(model.device)
-            
-            with torch.no_grad():
-                outputs_ablated = model(**inputs_ablated)
-                logits_ablated = outputs_ablated.logits
-                
-            kl = calculate_divergence(logits_base, logits_ablated)
-            dialogue_scores.append(kl)
-            
-        # Normalize scores to [0, 1] across the dialogue
-        if len(dialogue_scores) > 1:
-            min_score = min(dialogue_scores)
-            max_score = max(dialogue_scores)
-            if max_score > min_score:
-                normalized = [(s - min_score) / (max_score - min_score) for s in dialogue_scores]
-            else:
-                normalized = [0.5 for _ in dialogue_scores]
-        else:
-            normalized = [1.0]
-            
-        all_targets.append(torch.tensor(normalized, dtype=torch.float32))
 
-    target_path = os.path.join(OUTPUT_DIR, "teacher_targets.pt")
-    torch.save(all_targets, target_path)
-    print(f"Saved targets to {target_path}")
+        # tam bağlam logits
+        base_ids = tokenizer(_build_prompt(context, question),
+                             return_tensors="pt", truncation=True,
+                             max_length=2048).to(model.device)
+        with torch.no_grad():
+            logits_base = model(**base_ids).logits
+
+        scores = []
+        for i in range(len(context)):
+            ablated = context[:i] + context[i+1:]
+            abl_ids = tokenizer(_build_prompt(ablated, question),
+                                return_tensors="pt", truncation=True,
+                                max_length=2048).to(model.device)
+            with torch.no_grad():
+                logits_abl = model(**abl_ids).logits
+            scores.append(_kl_div(logits_base, logits_abl))
+
+        # [0, 1] normalize
+        mn, mx = min(scores), max(scores)
+        if mx > mn:
+            normed = [(s - mn) / (mx - mn) for s in scores]
+        elif len(scores) == 1:
+            normed = [1.0]
+        else:
+            normed = [0.5] * len(scores)
+
+        all_targets.append(torch.tensor(normed, dtype=torch.float32))
+
+    out_path = os.path.join(OUTPUT_DIR, "teacher_targets.pt")
+    torch.save(all_targets, out_path)
+    print(f"✓ Etiketler kaydedildi → {out_path}")
+
 
 if __name__ == "__main__":
     args = get_args()

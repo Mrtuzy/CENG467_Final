@@ -1,185 +1,256 @@
-import os
-import time
+"""
+Faz 5 – Uçtan Uca Değerlendirme ve Analiz
+==========================================
+Eğitilen CfC modeli ile test seti üzerinde çıkarım yapar.
+Baseline (Full, Random, Cosine) ile karşılaştırıp kalite
+(ROUGE-L, BERTScore) ve hız (TTFT) metriklerini hesaplar.
+Sonuçları tablo ve grafik olarak Google Drive'a kaydeder.
+
+Kullanım:
+    python src/evaluate.py [--smoke_test]
+"""
+import os, sys, time, json
 import torch
 import numpy as np
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+
 from datasets import load_from_disk
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from sentence_transformers import SentenceTransformer, util
 from rouge_score import rouge_scorer
-import evaluate as hf_evaluate
+from tqdm import tqdm
 
-from config import get_args, DATA_DIR, OUTPUT_DIR, MODEL_DIR, TEACHER_MODEL_NAME, PROXY_MODEL_NAME, SBERT_MODEL_NAME, CFC_UNITS, DELTA_T_MIN, BETA
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from config import (get_args, DATA_DIR, OUTPUT_DIR, MODEL_DIR, FIGURES_DIR,
+                    TEACHER_MODEL_NAME, PROXY_MODEL_NAME, SBERT_MODEL_NAME,
+                    SBERT_DIM, CFC_UNITS, DELTA_T_MIN, BETA, TAU)
 from train_cfc import CfCPruner
 from build_inputs import calculate_surprisal
 
-def format_prompt_for_gen(context_list, question):
-    prompt = "<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\nYou are a helpful AI assistant. Answer the user's question concisely based on the conversation history.<|eot_id|>"
-    prompt += "<|start_header_id|>user<|end_header_id|>\n\n"
+
+# ------------------------------------------------------------------ #
+#  Helpers                                                            #
+# ------------------------------------------------------------------ #
+def _build_prompt(context_list, question):
+    p  = "<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\n"
+    p += "You are a helpful AI assistant. Answer concisely based on the conversation history.<|eot_id|>"
+    p += "<|start_header_id|>user<|end_header_id|>\n\n"
     if context_list:
-        prompt += "Conversation history:\n"
-        for i, turn in enumerate(context_list):
-            prompt += f"Turn {i+1}: {turn}\n"
-        prompt += "\n"
-    prompt += f"Question: {question}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n"
-    return prompt
+        p += "Conversation history:\n"
+        for i, t in enumerate(context_list):
+            p += f"Turn {i+1}: {t}\n"
+        p += "\n"
+    p += f"Question: {question}<|eot_id|>"
+    p += "<|start_header_id|>assistant<|end_header_id|>\n\n"
+    return p
 
-def generate_answer(model, tokenizer, prompt, max_new_tokens=50):
-    inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
-    start_time = time.time()
+
+def _generate(model, tokenizer, prompt, max_new=50):
+    ids = tokenizer(prompt, return_tensors="pt", truncation=True,
+                    max_length=2048).to(model.device)
+    t0 = time.time()
     with torch.no_grad():
-        outputs = model.generate(
-            **inputs, 
-            max_new_tokens=max_new_tokens,
-            pad_token_id=tokenizer.eos_token_id,
-            do_sample=False
-        )
-    ttft = time.time() - start_time
-    
-    gen_text = tokenizer.decode(outputs[0][inputs.input_ids.shape[1]:], skip_special_tokens=True)
-    return gen_text.strip(), ttft
+        out = model.generate(**ids, max_new_tokens=max_new,
+                             pad_token_id=tokenizer.eos_token_id,
+                             do_sample=False)
+    ttft = time.time() - t0
+    text = tokenizer.decode(out[0][ids.input_ids.shape[1]:],
+                            skip_special_tokens=True).strip()
+    return text, ttft
 
-def run_evaluation(smoke_test=False):
+
+def _count_tokens(tokenizer, texts):
+    return sum(len(tokenizer.encode(t)) for t in texts)
+
+
+# ------------------------------------------------------------------ #
+#  Main evaluation                                                    #
+# ------------------------------------------------------------------ #
+def run_evaluation(smoke_test: bool = False):
     test_path = os.path.join(DATA_DIR, "test_processed")
     if not os.path.exists(test_path):
-        raise FileNotFoundError("Test data not found.")
-        
+        raise FileNotFoundError("Test verisi bulunamadı.")
+
     test_ds = load_from_disk(test_path)
     if smoke_test:
         test_ds = test_ds.select(range(min(5, len(test_ds))))
-        
+
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    
-    print("Loading Models for Evaluation...")
-    proxy_tokenizer = AutoTokenizer.from_pretrained(PROXY_MODEL_NAME)
+
+    # ---- lightweight modeller ----
+    print("Modeller yükleniyor …")
+    proxy_tok   = AutoTokenizer.from_pretrained(PROXY_MODEL_NAME)
     proxy_model = AutoModelForCausalLM.from_pretrained(PROXY_MODEL_NAME).to(device)
     proxy_model.eval()
-    
-    sbert_model = SentenceTransformer(SBERT_MODEL_NAME).to(device)
-    
-    cfc_model = CfCPruner(input_size=384, hidden_size=CFC_UNITS).to(device)
-    model_weights = os.path.join(MODEL_DIR, "best_cfc_model.pth")
-    if os.path.exists(model_weights):
-        cfc_model.load_state_dict(torch.load(model_weights, map_location=device))
-    else:
-        print("Warning: Trained CfC model not found, using untrained weights.")
-    cfc_model.eval()
-    
-    try:
-        llm_tokenizer = AutoTokenizer.from_pretrained(TEACHER_MODEL_NAME)
-        llm = AutoModelForCausalLM.from_pretrained(TEACHER_MODEL_NAME, device_map="auto", load_in_4bit=True, torch_dtype=torch.float16)
-        llm.eval()
-    except Exception as e:
-        print(f"Could not load LLM for generation: {e}")
-        return
 
-    rouge = rouge_scorer.RougeScorer(['rougeL'], use_stemmer=True)
-    
-    results = {
-        'full': {'rougeL': [], 'ttft': [], 'context_len': []},
-        'cfc': {'rougeL': [], 'ttft': [], 'context_len': []},
-        'random': {'rougeL': [], 'ttft': [], 'context_len': []},
-        'cosine': {'rougeL': [], 'ttft': [], 'context_len': []}
-    }
-    
+    sbert = SentenceTransformer(SBERT_MODEL_NAME, device=device)
+
+    cfc = CfCPruner(input_size=SBERT_DIM, hidden_size=CFC_UNITS).to(device)
+    wpath = os.path.join(MODEL_DIR, "best_cfc_model.pth")
+    if os.path.exists(wpath):
+        cfc.load_state_dict(torch.load(wpath, map_location=device, weights_only=False))
+    else:
+        print("⚠  Eğitilmiş CfC ağırlıkları yok – rastgele ağırlıklar kullanılıyor.")
+    cfc.eval()
+
+    # ---- LLM (teacher) ----
+    print(f"LLM yükleniyor: {TEACHER_MODEL_NAME}")
+    llm_tok = AutoTokenizer.from_pretrained(TEACHER_MODEL_NAME)
+    llm = AutoModelForCausalLM.from_pretrained(
+        TEACHER_MODEL_NAME, device_map="auto",
+        load_in_4bit=True, torch_dtype=torch.float16)
+    llm.eval()
+
+    rouge = rouge_scorer.RougeScorer(["rougeL"], use_stemmer=True)
+    methods = ["full", "cfc", "random", "cosine"]
+    R = {m: {"rougeL": [], "ttft": [], "tokens": []} for m in methods}
     all_refs = []
-    all_preds_full, all_preds_cfc, all_preds_rand, all_preds_cos = [], [], [], []
-    
-    tau = 0.5
-    
-    print("Evaluating...")
-    for example in test_ds:
-        context = example['context']
-        question = example['question']
-        ground_truth = example['answer']
-        
-        if not context:
+    all_preds = {m: [] for m in methods}
+
+    print("Değerlendirme başlıyor …")
+    for example in tqdm(test_ds):
+        ctx = example["context"]
+        q   = example["question"]
+        gt  = example["answer"]
+        if not ctx:
             continue
-            
-        all_refs.append(ground_truth)
-        
-        # 1. Full Context
-        p_full = format_prompt_for_gen(context, question)
-        ans_full, ttft_full = generate_answer(llm, llm_tokenizer, p_full)
-        rL_full = rouge.score(ground_truth, ans_full)['rougeL'].fmeasure
-        results['full']['rougeL'].append(rL_full)
-        results['full']['ttft'].append(ttft_full)
-        results['full']['context_len'].append(len(context))
-        all_preds_full.append(ans_full)
-        
-        # 2. CfC Pruning
-        embs = sbert_model.encode(context, convert_to_tensor=True, show_progress_bar=False)
-        dts = []
-        for u in context:
-            surp = calculate_surprisal(u, proxy_model, proxy_tokenizer, device)
-            dts.append(DELTA_T_MIN + BETA * surp)
-            
-        embs_batch = embs.unsqueeze(0).to(device)
-        dts_batch = torch.tensor([dts], dtype=torch.float32).to(device)
-        
+
+        all_refs.append(gt)
+        full_tokens = _count_tokens(llm_tok, ctx)
+
+        # --- (1) Full Context ---
+        ans, ttft = _generate(llm, llm_tok, _build_prompt(ctx, q))
+        R["full"]["rougeL"].append(rouge.score(gt, ans)["rougeL"].fmeasure)
+        R["full"]["ttft"].append(ttft)
+        R["full"]["tokens"].append(full_tokens)
+        all_preds["full"].append(ans)
+
+        # --- (2) CfC Pruning ---
+        embs = sbert.encode(ctx, convert_to_tensor=True, show_progress_bar=False)
+        dts = [DELTA_T_MIN + BETA * calculate_surprisal(u, proxy_model, proxy_tok, device)
+               for u in ctx]
+        embs_b = embs.unsqueeze(0).to(device)
+        dts_b  = torch.tensor(dts, dtype=torch.float32).unsqueeze(0).unsqueeze(-1).to(device)
         with torch.no_grad():
-            scores = cfc_model(embs_batch, timespans=dts_batch).squeeze(0).cpu().numpy()
-            
-        cfc_context = [u for u, s in zip(context, scores) if s >= tau]
-        keep_count = len(cfc_context)
-        
-        p_cfc = format_prompt_for_gen(cfc_context, question)
-        ans_cfc, ttft_cfc = generate_answer(llm, llm_tokenizer, p_cfc)
-        rL_cfc = rouge.score(ground_truth, ans_cfc)['rougeL'].fmeasure
-        results['cfc']['rougeL'].append(rL_cfc)
-        results['cfc']['ttft'].append(ttft_cfc)
-        results['cfc']['context_len'].append(keep_count)
-        all_preds_cfc.append(ans_cfc)
-        
-        # 3. Random Pruning
-        if keep_count < len(context):
-            idx = np.random.choice(len(context), keep_count, replace=False)
-            idx.sort()
-            rand_context = [context[i] for i in idx]
+            scores = cfc(embs_b, timespans=dts_b).squeeze(0).cpu().numpy()
+        cfc_ctx = [u for u, s in zip(ctx, scores) if s >= TAU]
+        if not cfc_ctx:  # en azından en yüksek skorlu 1 cümleyi tut
+            best_idx = int(np.argmax(scores))
+            cfc_ctx = [ctx[best_idx]]
+        ans, ttft = _generate(llm, llm_tok, _build_prompt(cfc_ctx, q))
+        R["cfc"]["rougeL"].append(rouge.score(gt, ans)["rougeL"].fmeasure)
+        R["cfc"]["ttft"].append(ttft)
+        R["cfc"]["tokens"].append(_count_tokens(llm_tok, cfc_ctx))
+        all_preds["cfc"].append(ans)
+        keep = len(cfc_ctx)
+
+        # --- (3) Random Pruning ---
+        if keep < len(ctx):
+            idx = np.sort(np.random.choice(len(ctx), keep, replace=False))
+            rand_ctx = [ctx[i] for i in idx]
         else:
-            rand_context = context
-            
-        p_rand = format_prompt_for_gen(rand_context, question)
-        ans_rand, ttft_rand = generate_answer(llm, llm_tokenizer, p_rand)
-        rL_rand = rouge.score(ground_truth, ans_rand)['rougeL'].fmeasure
-        results['random']['rougeL'].append(rL_rand)
-        results['random']['ttft'].append(ttft_rand)
-        results['random']['context_len'].append(keep_count)
-        all_preds_rand.append(ans_rand)
-        
-        # 4. Cosine Pruning
-        q_emb = sbert_model.encode(question, convert_to_tensor=True)
-        cos_scores = util.cos_sim(q_emb, embs)[0].cpu().numpy()
-        if keep_count > 0:
-            top_idx = np.argsort(cos_scores)[-keep_count:]
-            top_idx.sort()
-            cos_context = [context[i] for i in top_idx]
+            rand_ctx = ctx
+        ans, ttft = _generate(llm, llm_tok, _build_prompt(rand_ctx, q))
+        R["random"]["rougeL"].append(rouge.score(gt, ans)["rougeL"].fmeasure)
+        R["random"]["ttft"].append(ttft)
+        R["random"]["tokens"].append(_count_tokens(llm_tok, rand_ctx))
+        all_preds["random"].append(ans)
+
+        # --- (4) Cosine Similarity Pruning ---
+        q_emb = sbert.encode(q, convert_to_tensor=True)
+        cos = util.cos_sim(q_emb, embs)[0].cpu().numpy()
+        if keep > 0:
+            top = np.sort(np.argsort(cos)[-keep:])
+            cos_ctx = [ctx[i] for i in top]
         else:
-            cos_context = []
-            
-        p_cos = format_prompt_for_gen(cos_context, question)
-        ans_cos, ttft_cos = generate_answer(llm, llm_tokenizer, p_cos)
-        rL_cos = rouge.score(ground_truth, ans_cos)['rougeL'].fmeasure
-        results['cosine']['rougeL'].append(rL_cos)
-        results['cosine']['ttft'].append(ttft_cos)
-        results['cosine']['context_len'].append(keep_count)
-        all_preds_cos.append(ans_cos)
-        
-    print("\n--- RESULTS ---")
-    for method in ['full', 'cfc', 'random', 'cosine']:
-        avg_rL = np.mean(results[method]['rougeL']) if results[method]['rougeL'] else 0
-        avg_ttft = np.mean(results[method]['ttft']) if results[method]['ttft'] else 0
-        avg_len = np.mean(results[method]['context_len']) if results[method]['context_len'] else 0
-        print(f"[{method.upper()}] ROUGE-L: {avg_rL:.4f} | TTFT (s): {avg_ttft:.4f} | Avg Context Len: {avg_len:.1f}")
-        
+            cos_ctx = []
+        ans, ttft = _generate(llm, llm_tok, _build_prompt(cos_ctx, q))
+        R["cosine"]["rougeL"].append(rouge.score(gt, ans)["rougeL"].fmeasure)
+        R["cosine"]["ttft"].append(ttft)
+        R["cosine"]["tokens"].append(_count_tokens(llm_tok, cos_ctx))
+        all_preds["cosine"].append(ans)
+
+    # ================================================================ #
+    #  Sonuçları topla                                                  #
+    # ================================================================ #
+    os.makedirs(FIGURES_DIR, exist_ok=True)
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+    summary = {}
+    full_tok_avg = np.mean(R["full"]["tokens"]) if R["full"]["tokens"] else 1
+    print("\n" + "="*65)
+    print(f'{"Method":<12} {"ROUGE-L":>10} {"TTFT (s)":>10} {"Tokens":>10} {"Reduction%":>12}')
+    print("-"*65)
+    for m in methods:
+        rl   = np.mean(R[m]["rougeL"]) if R[m]["rougeL"] else 0
+        ttft = np.mean(R[m]["ttft"])   if R[m]["ttft"]   else 0
+        tok  = np.mean(R[m]["tokens"]) if R[m]["tokens"] else 0
+        red  = (1 - tok / full_tok_avg) * 100 if full_tok_avg else 0
+        summary[m] = {"ROUGE-L": round(rl, 4), "TTFT": round(ttft, 4),
+                      "Avg_Tokens": round(tok, 1), "Reduction%": round(red, 1)}
+        print(f"{m:<12} {rl:>10.4f} {ttft:>10.4f} {tok:>10.1f} {red:>11.1f}%")
+    print("="*65)
+
+    # ---- BERTScore (sadece gerçek koşumda) ----
     if not smoke_test and all_refs:
         try:
+            import evaluate as hf_evaluate
             bertscore = hf_evaluate.load("bertscore")
-            print("\nComputing BERTScore...")
-            for method, preds in [('full', all_preds_full), ('cfc', all_preds_cfc), ('random', all_preds_rand), ('cosine', all_preds_cos)]:
-                bs = bertscore.compute(predictions=preds, references=all_refs, lang="en")
-                print(f"[{method.upper()}] BERTScore F1: {np.mean(bs['f1']):.4f}")
+            print("\nBERTScore hesaplanıyor …")
+            for m in methods:
+                bs = bertscore.compute(predictions=all_preds[m],
+                                       references=all_refs, lang="en")
+                f1 = round(np.mean(bs["f1"]), 4)
+                summary[m]["BERTScore_F1"] = f1
+                print(f"  [{m.upper()}] BERTScore F1: {f1}")
         except Exception as e:
-            print(f"BERTScore computation skipped: {e}")
+            print(f"  BERTScore atlandı: {e}")
+
+    # ---- Kaydet ----
+    json_path = os.path.join(OUTPUT_DIR, "eval_results.json")
+    with open(json_path, "w") as f:
+        json.dump(summary, f, indent=2)
+    print(f"\n✓ Sonuçlar → {json_path}")
+
+    # ================================================================ #
+    #  Grafikler                                                       #
+    # ================================================================ #
+    labels = [m.upper() for m in methods]
+    colors = ["#4C72B0", "#DD8452", "#55A868", "#C44E52"]
+
+    def _bar(values, ylabel, title, fname):
+        fig, ax = plt.subplots(figsize=(7, 4))
+        bars = ax.bar(labels, values, color=colors, edgecolor="white", linewidth=0.8)
+        for b, v in zip(bars, values):
+            ax.text(b.get_x() + b.get_width()/2, b.get_height() + max(values)*0.02,
+                    f"{v:.3f}", ha="center", va="bottom", fontsize=10)
+        ax.set_ylabel(ylabel)
+        ax.set_title(title)
+        ax.grid(axis="y", alpha=0.3)
+        plt.tight_layout()
+        path = os.path.join(FIGURES_DIR, fname)
+        plt.savefig(path, dpi=150)
+        plt.close()
+        print(f"  📊 {path}")
+
+    print("\nGrafikler oluşturuluyor …")
+    _bar([summary[m]["ROUGE-L"] for m in methods],
+         "ROUGE-L", "ROUGE-L Comparison", "rouge_l_comparison.png")
+    _bar([summary[m]["TTFT"] for m in methods],
+         "Seconds", "Time To First Token (TTFT)", "ttft_comparison.png")
+    _bar([summary[m]["Avg_Tokens"] for m in methods],
+         "Tokens", "Average Context Token Count", "token_count_comparison.png")
+    _bar([summary[m]["Reduction%"] for m in methods],
+         "% Reduction", "Token Reduction vs Full Context", "token_reduction_comparison.png")
+
+    if "BERTScore_F1" in summary.get("full", {}):
+        _bar([summary[m]["BERTScore_F1"] for m in methods],
+             "F1", "BERTScore F1 Comparison", "bertscore_comparison.png")
+
+    print("\n✓ Değerlendirme tamamlandı.")
+
 
 if __name__ == "__main__":
     args = get_args()

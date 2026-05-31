@@ -1,68 +1,97 @@
-import os
-from datasets import load_dataset
-from config import get_args, DATA_DIR
+"""
+Faz 1 – Veri Seti Hazırlığı
+============================
+QReCC veri setini ham JSON olarak indirir, diyalog formatına çevirir,
+çok kısa / çok uzun diyalogları temizler ve HuggingFace Dataset olarak
+Google Drive'a kaydeder.
 
-def process_example(example):
-    # QReCC typically provides context as a list of strings and the current question.
-    # Depending on the exact schema on HuggingFace, column names might be lowercase or capitalized.
-    context = example.get('Context', example.get('context', []))
-    question = example.get('Question', example.get('question', ""))
-    answer = example.get('Answer', example.get('answer', ""))
-    
+Kullanım:
+    python src/data_prep.py [--smoke_test]
+"""
+import os, sys, json, requests
+
+# ---- path bootstrap: config.py aynı dizinde ----
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from config import get_args, DATA_DIR
+from datasets import Dataset
+
+TRAIN_URL = "https://huggingface.co/datasets/svakulenk0/qrecc/resolve/main/qrecc-training.json"
+TEST_URL  = "https://huggingface.co/datasets/svakulenk0/qrecc/resolve/main/qrecc-test.json"
+
+# --------------------------------------------------------------------- #
+#  Helpers                                                                #
+# --------------------------------------------------------------------- #
+def download_file(url: str, save_path: str) -> None:
+    """Stream-download a file from *url* to *save_path*."""
+    print(f"  ↓ Downloading {url}")
+    resp = requests.get(url, stream=True)
+    resp.raise_for_status()
+    with open(save_path, "wb") as f:
+        for chunk in resp.iter_content(chunk_size=1 << 16):
+            f.write(chunk)
+    print(f"  ✓ Saved to {save_path}")
+
+
+def parse_example(raw: dict) -> dict:
+    """Normalize one QReCC JSON record into our schema."""
+    context  = raw.get("Context", raw.get("context", []))
+    question = raw.get("Question", raw.get("question", ""))
+    answer   = raw.get("Answer", raw.get("answer", ""))
     if isinstance(context, str):
-        # Fallback if context is a single string instead of a list
-        context = [u.strip() for u in context.split('\n') if u.strip()]
-        
+        context = [u.strip() for u in context.split("\n") if u.strip()]
     return {
-        'context': context,
-        'question': question,
-        'answer': answer,
-        'num_turns': len(context)
+        "context":   context,
+        "question":  question,
+        "answer":    answer,
+        "num_turns": len(context),
     }
 
-def prepare_qrecc_data(smoke_test=False):
-    print("Loading QReCC dataset...")
-    try:
-        # The correct HuggingFace repository for QReCC
-        dataset = load_dataset("svakulenk0/qrecc", trust_remote_code=True)
-    except Exception as e:
-        print(f"Failed to load svakulenk0/qrecc: {e}")
-        print("Falling back to generic 'qrecc' dataset...")
-        try:
-            dataset = load_dataset("qrecc")
-        except Exception as e2:
-            print("Could not load QReCC automatically. You may need to download the JSON files manually.")
-            raise e2
 
-    train_ds = dataset['train']
-    test_ds = dataset['test']
+# --------------------------------------------------------------------- #
+#  Main                                                                   #
+# --------------------------------------------------------------------- #
+def prepare_qrecc_data(smoke_test: bool = False) -> None:
+    os.makedirs(DATA_DIR, exist_ok=True)
+
+    train_json = os.path.join(DATA_DIR, "raw_train.json")
+    test_json  = os.path.join(DATA_DIR, "raw_test.json")
+
+    # 1. İndir (zaten varsa atla)
+    if not os.path.exists(train_json):
+        download_file(TRAIN_URL, train_json)
+    if not os.path.exists(test_json):
+        download_file(TEST_URL, test_json)
+
+    # 2. Belleğe oku
+    print("Loading JSON …")
+    with open(train_json, "r", encoding="utf-8") as f:
+        train_raw = json.load(f)
+    with open(test_json, "r", encoding="utf-8") as f:
+        test_raw = json.load(f)
 
     if smoke_test:
-        print("SMOKE TEST enabled: subsetting dataset.")
-        train_ds = train_ds.select(range(min(50, len(train_ds))))
-        test_ds = test_ds.select(range(min(20, len(test_ds))))
+        print("[SMOKE TEST] Veri 50 train / 20 test'e kısıtlandı.")
+        train_raw = train_raw[:50]
+        test_raw  = test_raw[:20]
 
-    print("Parsing examples...")
-    train_ds = train_ds.map(process_example, remove_columns=train_ds.column_names)
-    test_ds = test_ds.map(process_example, remove_columns=test_ds.column_names)
+    # 3. Parse
+    parsed_train = [parse_example(r) for r in train_raw]
+    parsed_test  = [parse_example(r) for r in test_raw]
 
-    print(f"Pre-filtering train size: {len(train_ds)}")
-    # Filter out very short (<3) or very long (>20) contexts
-    train_ds = train_ds.filter(lambda x: 3 <= x['num_turns'] <= 20)
-    print(f"Post-filtering train size: {len(train_ds)}")
+    # 4. Filtre (3 ≤ turns ≤ 20)
+    before = len(parsed_train)
+    parsed_train = [ex for ex in parsed_train if 3 <= ex["num_turns"] <= 20]
+    print(f"Train filtreleme: {before} → {len(parsed_train)}")
 
-    if smoke_test and len(train_ds) < 10:
-        # If filtering removed too many in smoke test, just take the first 10
-        train_ds = dataset['train'].select(range(10)).map(process_example, remove_columns=dataset['train'].column_names)
+    # smoke-test güvenlik ağı
+    if smoke_test and len(parsed_train) < 5:
+        parsed_train = [parse_example(r) for r in train_raw[:10]]
 
-    os.makedirs(DATA_DIR, exist_ok=True)
-    train_path = os.path.join(DATA_DIR, "train_processed")
-    test_path = os.path.join(DATA_DIR, "test_processed")
+    # 5. Kaydet
+    Dataset.from_list(parsed_train).save_to_disk(os.path.join(DATA_DIR, "train_processed"))
+    Dataset.from_list(parsed_test).save_to_disk(os.path.join(DATA_DIR, "test_processed"))
+    print(f"✓ İşlenmiş veri kaydedildi → {DATA_DIR}")
 
-    train_ds.save_to_disk(train_path)
-    test_ds.save_to_disk(test_path)
-    
-    print(f"Saved processed datasets to {DATA_DIR}")
 
 if __name__ == "__main__":
     args = get_args()
