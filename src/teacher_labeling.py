@@ -54,12 +54,19 @@ def generate_teacher_labels(smoke_test: bool = False):
 
     # ---- model yükleme ----
     print(f"Öğretmen model yükleniyor: {TEACHER_MODEL_NAME}")
-    tokenizer = AutoTokenizer.from_pretrained(TEACHER_MODEL_NAME)
+    hf_token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_TOKEN")
+    if not hf_token:
+        print("Uyari: HF_TOKEN/HUGGINGFACE_TOKEN bulunamadi. Gated modele erisim icin token gerekir.")
+    tokenizer = AutoTokenizer.from_pretrained(
+        TEACHER_MODEL_NAME,
+        token=hf_token,
+    )
     model = AutoModelForCausalLM.from_pretrained(
         TEACHER_MODEL_NAME,
         device_map="auto",
         load_in_4bit=True,
         torch_dtype=torch.float16,
+        token=hf_token,
     )
     model.eval()
 
