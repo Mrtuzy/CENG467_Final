@@ -75,6 +75,16 @@ class CfCPruner(nn.Module):
 
     def forward(self, x, timespans=None):
         # x : (B, T, D)   timespans : (B, T)
+        if timespans is not None and x.size(0) > 1:
+            # ncps squeezes each time step's timespan internally. With B > 1,
+            # that leaves a (B,) tensor that cannot broadcast over hidden units.
+            outputs = []
+            for i in range(x.size(0)):
+                out_i, _ = self.cfc(x[i:i+1], timespans=timespans[i:i+1])
+                outputs.append(out_i)
+            out = torch.cat(outputs, dim=0)
+            return self.sigmoid(out).squeeze(-1)
+
         out, _ = self.cfc(x, timespans=timespans)
         return self.sigmoid(out).squeeze(-1)   # (B, T)
 
