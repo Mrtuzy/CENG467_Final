@@ -13,21 +13,31 @@ import os, sys, torch
 import torch.nn.functional as F
 from tqdm import tqdm
 from datasets import load_from_disk
-from transformers import AutoModelForCausalLM, AutoTokenizer
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from config import get_args, DATA_DIR, OUTPUT_DIR, TEACHER_MODEL_NAME
+from model_loading import get_hf_token, load_causal_lm, load_tokenizer, model_input_device
 
 
-def _build_prompt(context_list, question):
-    """Build a Mistral Instruct prompt."""
+def _build_messages(context_list, question):
+    """Build chat messages for an instruction-tuned teacher model."""
     user_parts = ["You are a helpful AI assistant."]
     if context_list:
         history = "\n".join(f"Turn {i+1}: {turn}" for i, turn in enumerate(context_list))
         user_parts.append(f"Conversation history:\n{history}")
     user_parts.append(f"Question: {question}")
-    user_text = "\n\n".join(user_parts)
-    return f"<s>[INST] {user_text} [/INST]"
+    return [{"role": "user", "content": "\n\n".join(user_parts)}]
+
+
+def _build_prompt(tokenizer, context_list, question):
+    messages = _build_messages(context_list, question)
+    if getattr(tokenizer, "chat_template", None):
+        return tokenizer.apply_chat_template(
+            messages,
+            tokenize=False,
+            add_generation_prompt=True,
+        )
+    return f"<s>[INST] {messages[0]['content']} [/INST]"
 
 
 def _kl_div(logits_base, logits_ablated):
@@ -50,21 +60,19 @@ def generate_teacher_labels(smoke_test: bool = False):
 
     # ---- model yükleme ----
     print(f"Öğretmen model yükleniyor: {TEACHER_MODEL_NAME}")
-    hf_token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_TOKEN")
-    if not hf_token:
+    if not get_hf_token():
         print("Uyari: HF_TOKEN/HUGGINGFACE_TOKEN bulunamadi. Gated modele erisim icin token gerekir.")
-    tokenizer = AutoTokenizer.from_pretrained(
+    tokenizer = load_tokenizer(
         TEACHER_MODEL_NAME,
-        token=hf_token,
     )
-    model = AutoModelForCausalLM.from_pretrained(
+    model = load_causal_lm(
         TEACHER_MODEL_NAME,
         device_map="auto",
-        load_in_4bit=True,
-        torch_dtype=torch.float16,
-        token=hf_token,
+        dtype=torch.float16,
+        quantize_4bit=True,
     )
     model.eval()
+    input_device = model_input_device(model)
 
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     all_targets = []
@@ -79,18 +87,18 @@ def generate_teacher_labels(smoke_test: bool = False):
             continue
 
         # tam bağlam logits
-        base_ids = tokenizer(_build_prompt(context, question),
+        base_ids = tokenizer(_build_prompt(tokenizer, context, question),
                              return_tensors="pt", truncation=True,
-                             max_length=2048).to(model.device)
+                             max_length=2048).to(input_device)
         with torch.no_grad():
             logits_base = model(**base_ids).logits
 
         scores = []
         for i in range(len(context)):
             ablated = context[:i] + context[i+1:]
-            abl_ids = tokenizer(_build_prompt(ablated, question),
+            abl_ids = tokenizer(_build_prompt(tokenizer, ablated, question),
                                 return_tensors="pt", truncation=True,
-                                max_length=2048).to(model.device)
+                                max_length=2048).to(input_device)
             with torch.no_grad():
                 logits_abl = model(**abl_ids).logits
             scores.append(_kl_div(logits_base, logits_abl))

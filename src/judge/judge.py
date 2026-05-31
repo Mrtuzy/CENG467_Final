@@ -11,14 +11,15 @@ class LLMJudge:
     def _load_model(self) -> None:
         if self._model is not None or self.model_name == "dry_run":
             return
-        from transformers import AutoTokenizer, AutoModelForCausalLM
         import torch
+        from src.model_loading import load_causal_lm, load_tokenizer
 
-        self._tokenizer = AutoTokenizer.from_pretrained(self.model_name)
-        self._model = AutoModelForCausalLM.from_pretrained(
+        self._tokenizer = load_tokenizer(self.model_name)
+        self._model = load_causal_lm(
             self.model_name,
             dtype=torch.float16,
             device_map="auto",
+            quantize_4bit=True,
         )
         self._model.eval()
 
@@ -32,14 +33,16 @@ class LLMJudge:
 
         self._load_model()
         import torch
+        from src.model_loading import model_input_device
+
         messages = [{"role": "user", "content": prompt}]
-        if hasattr(self._tokenizer, "apply_chat_template"):
+        if getattr(self._tokenizer, "chat_template", None):
             input_text = self._tokenizer.apply_chat_template(
                 messages, tokenize=False, add_generation_prompt=True
             )
         else:
             input_text = prompt
-        inputs = self._tokenizer(input_text, return_tensors="pt").to(self._model.device)
+        inputs = self._tokenizer(input_text, return_tensors="pt").to(model_input_device(self._model))
         with torch.no_grad():
             output_ids = self._model.generate(
                 **inputs,

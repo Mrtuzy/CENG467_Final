@@ -28,28 +28,44 @@ from config import (get_args, DATA_DIR, OUTPUT_DIR, MODEL_DIR, FIGURES_DIR,
                     SBERT_DIM, CFC_UNITS, DELTA_T_MIN, BETA, TAU)
 from train_cfc import CfCPruner
 from build_inputs import calculate_surprisal
+from model_loading import load_causal_lm, load_tokenizer, model_input_device
 
 
 # ------------------------------------------------------------------ #
 #  Helpers                                                            #
 # ------------------------------------------------------------------ #
-def _build_prompt(context_list, question):
-    p  = "<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\n"
-    p += "You are a helpful AI assistant. Answer concisely based on the conversation history.<|eot_id|>"
-    p += "<|start_header_id|>user<|end_header_id|>\n\n"
+def _build_user_content(context_list, question):
+    p = ""
     if context_list:
         p += "Conversation history:\n"
         for i, t in enumerate(context_list):
             p += f"Turn {i+1}: {t}\n"
         p += "\n"
-    p += f"Question: {question}<|eot_id|>"
-    p += "<|start_header_id|>assistant<|end_header_id|>\n\n"
+    p += f"Question: {question}"
     return p
 
 
+def _build_prompt(tokenizer, context_list, question):
+    messages = [
+        {
+            "role": "system",
+            "content": "You are a helpful AI assistant. Answer concisely based on the conversation history.",
+        },
+        {"role": "user", "content": _build_user_content(context_list, question)},
+    ]
+    if getattr(tokenizer, "chat_template", None):
+        return tokenizer.apply_chat_template(
+            messages,
+            tokenize=False,
+            add_generation_prompt=True,
+        )
+    return f"<s>[INST] {messages[0]['content']}\n\n{messages[1]['content']} [/INST]"
+
+
 def _generate(model, tokenizer, prompt, max_new=50):
+    input_device = model_input_device(model)
     ids = tokenizer(prompt, return_tensors="pt", truncation=True,
-                    max_length=2048).to(model.device)
+                    max_length=2048).to(input_device)
     t0 = time.time()
     with torch.no_grad():
         out = model.generate(**ids, max_new_tokens=max_new,
@@ -97,10 +113,13 @@ def run_evaluation(smoke_test: bool = False):
 
     # ---- LLM (teacher) ----
     print(f"LLM yükleniyor: {TEACHER_MODEL_NAME}")
-    llm_tok = AutoTokenizer.from_pretrained(TEACHER_MODEL_NAME)
-    llm = AutoModelForCausalLM.from_pretrained(
-        TEACHER_MODEL_NAME, device_map="auto",
-        load_in_4bit=True, torch_dtype=torch.float16)
+    llm_tok = load_tokenizer(TEACHER_MODEL_NAME)
+    llm = load_causal_lm(
+        TEACHER_MODEL_NAME,
+        device_map="auto",
+        dtype=torch.float16,
+        quantize_4bit=True,
+    )
     llm.eval()
 
     rouge = rouge_scorer.RougeScorer(["rougeL"], use_stemmer=True)
@@ -121,7 +140,7 @@ def run_evaluation(smoke_test: bool = False):
         full_tokens = _count_tokens(llm_tok, ctx)
 
         # --- (1) Full Context ---
-        ans, ttft = _generate(llm, llm_tok, _build_prompt(ctx, q))
+        ans, ttft = _generate(llm, llm_tok, _build_prompt(llm_tok, ctx, q))
         R["full"]["rougeL"].append(rouge.score(gt, ans)["rougeL"].fmeasure)
         R["full"]["ttft"].append(ttft)
         R["full"]["tokens"].append(full_tokens)
@@ -139,7 +158,7 @@ def run_evaluation(smoke_test: bool = False):
         if not cfc_ctx:  # en azından en yüksek skorlu 1 cümleyi tut
             best_idx = int(np.argmax(scores))
             cfc_ctx = [ctx[best_idx]]
-        ans, ttft = _generate(llm, llm_tok, _build_prompt(cfc_ctx, q))
+        ans, ttft = _generate(llm, llm_tok, _build_prompt(llm_tok, cfc_ctx, q))
         R["cfc"]["rougeL"].append(rouge.score(gt, ans)["rougeL"].fmeasure)
         R["cfc"]["ttft"].append(ttft)
         R["cfc"]["tokens"].append(_count_tokens(llm_tok, cfc_ctx))
@@ -152,7 +171,7 @@ def run_evaluation(smoke_test: bool = False):
             rand_ctx = [ctx[i] for i in idx]
         else:
             rand_ctx = ctx
-        ans, ttft = _generate(llm, llm_tok, _build_prompt(rand_ctx, q))
+        ans, ttft = _generate(llm, llm_tok, _build_prompt(llm_tok, rand_ctx, q))
         R["random"]["rougeL"].append(rouge.score(gt, ans)["rougeL"].fmeasure)
         R["random"]["ttft"].append(ttft)
         R["random"]["tokens"].append(_count_tokens(llm_tok, rand_ctx))
@@ -166,7 +185,7 @@ def run_evaluation(smoke_test: bool = False):
             cos_ctx = [ctx[i] for i in top]
         else:
             cos_ctx = []
-        ans, ttft = _generate(llm, llm_tok, _build_prompt(cos_ctx, q))
+        ans, ttft = _generate(llm, llm_tok, _build_prompt(llm_tok, cos_ctx, q))
         R["cosine"]["rougeL"].append(rouge.score(gt, ans)["rougeL"].fmeasure)
         R["cosine"]["ttft"].append(ttft)
         R["cosine"]["tokens"].append(_count_tokens(llm_tok, cos_ctx))
