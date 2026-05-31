@@ -1,7 +1,7 @@
 """
 Faz 2 – Öğretmen Model ile Altın Standart Etiketleme
 =====================================================
-LLaMA-3.1-8B-Instruct'ı 4-bit quantization ile yükler.
+Mistral-7B-Instruct-v0.2'yi 4-bit quantization ile yükler.
 Her diyalogdaki her cümle için leave-one-out KL-Divergence
 yaklaşımı ile önem skoru (p_target) hesaplar ve tensör olarak
 Google Drive'a kaydeder.
@@ -20,18 +20,14 @@ from config import get_args, DATA_DIR, OUTPUT_DIR, TEACHER_MODEL_NAME
 
 
 def _build_prompt(context_list, question):
-    """Build a LLaMA 3.1 chat prompt."""
-    p  = "<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\n"
-    p += "You are a helpful AI assistant.<|eot_id|>"
-    p += "<|start_header_id|>user<|end_header_id|>\n\n"
+    """Build a Mistral Instruct prompt."""
+    user_parts = ["You are a helpful AI assistant."]
     if context_list:
-        p += "Conversation history:\n"
-        for i, turn in enumerate(context_list):
-            p += f"Turn {i+1}: {turn}\n"
-        p += "\n"
-    p += f"Question: {question}<|eot_id|>"
-    p += "<|start_header_id|>assistant<|end_header_id|>\n\n"
-    return p
+        history = "\n".join(f"Turn {i+1}: {turn}" for i, turn in enumerate(context_list))
+        user_parts.append(f"Conversation history:\n{history}")
+    user_parts.append(f"Question: {question}")
+    user_text = "\n\n".join(user_parts)
+    return f"<s>[INST] {user_text} [/INST]"
 
 
 def _kl_div(logits_base, logits_ablated):

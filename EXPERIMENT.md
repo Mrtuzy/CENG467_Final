@@ -19,7 +19,7 @@ $$ \Delta t_i = \Delta t_{min} + \beta \cdot S(u_i) $$
 Where $\Delta t_{min} = 0.1$ and $\beta = 1.0$ (hyperparameters).
 
 ### 2.3 Knowledge Distillation for Ground Truth
-To train the CfC network, we need ground truth importance scores ($p_{target}$) for each $u_i$. We obtain these using a "leave-one-out" approach with a powerful Teacher model (LLaMA-3.1-8B-Instruct).
+To train the CfC network, we need ground truth importance scores ($p_{target}$) for each $u_i$. We obtain these using a "leave-one-out" approach with a powerful Teacher model (Mistral-7B-Instruct-v0.2).
 If removing $u_i$ drastically changes the teacher's output (high KL-Divergence or high logit difference), $u_i$ is highly important.
 
 ### 2.4 The CfC Network

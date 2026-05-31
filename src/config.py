@@ -24,7 +24,7 @@ FIGURES_DIR    = os.path.join(DRIVE_BASE_DIR, "figures")
 # ---------------------------------------------------------------------------
 PROXY_MODEL_NAME   = "distilgpt2"
 SBERT_MODEL_NAME   = "all-MiniLM-L6-v2"
-TEACHER_MODEL_NAME = "meta-llama/Meta-Llama-3.1-8B-Instruct"
+TEACHER_MODEL_NAME = "mistralai/Mistral-7B-Instruct-v0.2"
 
 # ---------------------------------------------------------------------------
 # CfC hyper-parameters
