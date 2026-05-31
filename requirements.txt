@@ -14,3 +14,6 @@ jupyter>=1.0.0
 scikit-learn>=1.4.0
 llmlingua>=0.2.0
 ncps>=0.0.7
+accelerate>=0.29.0
+bitsandbytes>=0.43.0
+rouge_score>=0.1.2
