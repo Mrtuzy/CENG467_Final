@@ -49,13 +49,13 @@ def collate_fn(batch):
     D = embeddings[0].size(1)
 
     padded_emb = torch.zeros(B, max_len, D)
-    padded_dt  = torch.zeros(B, max_len, 1)       # CfC expects (B, T, 1)
+    padded_dt  = torch.zeros(B, max_len)          # CfC expects (B, T)
     padded_tgt = torch.zeros(B, max_len)
     mask       = torch.zeros(B, max_len, dtype=torch.bool)
 
     for i, L in enumerate(seq_lens):
         padded_emb[i, :L] = embeddings[i]
-        padded_dt[i, :L, 0]  = delta_ts[i]
+        padded_dt[i, :L]  = delta_ts[i]
         padded_tgt[i, :L] = targets[i]
         mask[i, :L]        = True
 
@@ -71,13 +71,12 @@ class CfCPruner(nn.Module):
         super().__init__()
         wiring = AutoNCP(hidden_size, 1)          # 1 motor nöron
         self.cfc = CfC(input_size, wiring, batch_first=True)
-        self.fc  = nn.Linear(hidden_size, 1)
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, x, timespans=None):
-        # x : (B, T, D)   timespans : (B, T, 1)
+        # x : (B, T, D)   timespans : (B, T)
         out, _ = self.cfc(x, timespans=timespans)
-        return self.sigmoid(self.fc(out)).squeeze(-1)   # (B, T)
+        return self.sigmoid(out).squeeze(-1)   # (B, T)
 
 
 # ------------------------------------------------------------------ #

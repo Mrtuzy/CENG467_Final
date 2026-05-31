@@ -151,7 +151,7 @@ def run_evaluation(smoke_test: bool = False):
         dts = [DELTA_T_MIN + BETA * calculate_surprisal(u, proxy_model, proxy_tok, device)
                for u in ctx]
         embs_b = embs.unsqueeze(0).to(device)
-        dts_b  = torch.tensor(dts, dtype=torch.float32).unsqueeze(0).unsqueeze(-1).to(device)
+        dts_b  = torch.tensor(dts, dtype=torch.float32).unsqueeze(0).to(device)
         with torch.no_grad():
             scores = cfc(embs_b, timespans=dts_b).squeeze(0).cpu().numpy()
         cfc_ctx = [u for u, s in zip(ctx, scores) if s >= TAU]
