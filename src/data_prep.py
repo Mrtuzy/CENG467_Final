@@ -23,10 +23,10 @@ def process_example(example):
 def prepare_qrecc_data(smoke_test=False):
     print("Loading QReCC dataset...")
     try:
-        # Usually QReCC is available under this repo, but we trust remote code just in case
-        dataset = load_dataset("scai-research/qrecc", trust_remote_code=True)
+        # The correct HuggingFace repository for QReCC
+        dataset = load_dataset("svakulenk0/qrecc", trust_remote_code=True)
     except Exception as e:
-        print(f"Failed to load scai-research/qrecc: {e}")
+        print(f"Failed to load svakulenk0/qrecc: {e}")
         print("Falling back to generic 'qrecc' dataset...")
         try:
             dataset = load_dataset("qrecc")
