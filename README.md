@@ -14,11 +14,20 @@ Repository: https://github.com/Mrtuzy/CENG467_Final
 
 ## Dataset
 
-This project uses **HotpotQA** (distractor setting), a multi-hop QA dataset.
+The main benchmark for the project is **QReCC** (Question Rewriting in
+Conversational Context), because the final method studies conversation-history
+pruning. QReCC contains conversational turns, rewrites, answers, and answer
+provenance, making it a better fit than single-turn or synthetic-history QA
+benchmarks.
+
+The checked-in experiment outputs still include **HotpotQA** pilot runs. These
+are kept as implementation sanity checks for the pruning/generation/judge
+pipeline while the final evaluation is ported to QReCC.
 
 ### Automatic Download
 
-The dataset is downloaded automatically from HuggingFace when you run the pipeline.
+The current loader downloads the HotpotQA pilot split automatically from
+HuggingFace when you run the legacy pipeline.
 
 ```bash
 # Download and prepare 200 experiment samples + 50 calibration samples
@@ -33,7 +42,13 @@ Files will be saved to:
 - `data/processed/hotpotqa_experiments.jsonl` — 200 samples for evaluation
 - `data/processed/hotpotqa_calibration.jsonl` — 50 samples for judge calibration
 
-### Manual Download
+### QReCC Download
+
+QReCC is available from the official Apple repository and Zenodo release:
+- https://github.com/apple/ml-qrecc
+- https://zenodo.org/records/4769775
+
+### Manual HotpotQA Download
 
 If you prefer to download manually, visit [HotpotQA](https://hotpotqa.github.io) and place the JSON files in `data/raw/`.
 
@@ -62,7 +77,7 @@ Use the notebooks below as the primary reproduction path:
 4. `notebooks/03_lnn_training_colab.ipynb` and `notebooks/04_lnn_evaluation_colab.ipynb` — optional LNN/CfC-oriented exploratory extension
 
 Open `05_final_colab_runs.ipynb` in a GPU Colab runtime and run the cells from top to bottom.
-It clones this repository, installs dependencies, downloads HotpotQA, and writes final outputs to `experiments/results/`.
+It clones this repository, installs dependencies, downloads the HotpotQA pilot split, and writes pilot outputs to `experiments/results/`.
 
 ## Local Smoke Tests
 
