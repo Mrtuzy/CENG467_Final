@@ -38,7 +38,7 @@ def build_inputs(smoke_test: bool = False):
 
     train_ds = load_from_disk(train_path)
     if smoke_test:
-        train_ds = train_ds.select(range(min(10, len(train_ds))))
+        train_ds = train_ds.select(range(min(5, len(train_ds))))
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
 

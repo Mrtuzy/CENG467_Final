@@ -17,3 +17,4 @@ ncps>=0.0.7
 accelerate>=0.29.0
 bitsandbytes>=0.43.0
 rouge_score>=0.1.2
+matplotlib>=3.8.0

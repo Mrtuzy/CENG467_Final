@@ -12,6 +12,8 @@ Kullanım:
 import os, sys, time, json
 import torch
 import numpy as np
+
+RANDOM_SEED = 42
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -128,6 +130,8 @@ def run_evaluation(smoke_test: bool = False):
     all_refs = []
     all_preds = {m: [] for m in methods}
 
+    rng = np.random.default_rng(RANDOM_SEED)
+
     print("Değerlendirme başlıyor …")
     for example in tqdm(test_ds):
         ctx = example["context"]
@@ -167,7 +171,7 @@ def run_evaluation(smoke_test: bool = False):
 
         # --- (3) Random Pruning ---
         if keep < len(ctx):
-            idx = np.sort(np.random.choice(len(ctx), keep, replace=False))
+            idx = np.sort(rng.choice(len(ctx), keep, replace=False))
             rand_ctx = [ctx[i] for i in idx]
         else:
             rand_ctx = ctx

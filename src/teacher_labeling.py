@@ -75,47 +75,65 @@ def generate_teacher_labels(smoke_test: bool = False):
     input_device = model_input_device(model)
 
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-    all_targets = []
+    out_path   = os.path.join(OUTPUT_DIR, "teacher_targets.pt")
+    ckpt_path  = out_path + ".checkpoint"
+
+    # Resume from checkpoint if it exists
+    if os.path.exists(ckpt_path):
+        all_targets = torch.load(ckpt_path, map_location="cpu", weights_only=False)
+        start_idx   = len(all_targets)
+        print(f"[Checkpoint] {start_idx} örnek yüklendi, {start_idx}. örnekten devam ediliyor.")
+    else:
+        all_targets = []
+        start_idx   = 0
 
     print("Leave-one-out etiketleme başlatılıyor …")
-    for example in tqdm(train_ds):
+    for idx, example in enumerate(tqdm(train_ds)):
+        if idx < start_idx:
+            continue
+
         context  = example["context"]
         question = example["question"]
 
         if not context:
             all_targets.append(torch.tensor([], dtype=torch.float32))
-            continue
-
-        # tam bağlam logits
-        base_ids = tokenizer(_build_prompt(tokenizer, context, question),
-                             return_tensors="pt", truncation=True,
-                             max_length=2048).to(input_device)
-        with torch.no_grad():
-            logits_base = model(**base_ids).logits
-
-        scores = []
-        for i in range(len(context)):
-            ablated = context[:i] + context[i+1:]
-            abl_ids = tokenizer(_build_prompt(tokenizer, ablated, question),
-                                return_tensors="pt", truncation=True,
-                                max_length=2048).to(input_device)
-            with torch.no_grad():
-                logits_abl = model(**abl_ids).logits
-            scores.append(_kl_div(logits_base, logits_abl))
-
-        # [0, 1] normalize
-        mn, mx = min(scores), max(scores)
-        if mx > mn:
-            normed = [(s - mn) / (mx - mn) for s in scores]
-        elif len(scores) == 1:
-            normed = [1.0]
         else:
-            normed = [0.5] * len(scores)
+            # tam bağlam logits
+            base_ids = tokenizer(_build_prompt(tokenizer, context, question),
+                                 return_tensors="pt", truncation=True,
+                                 max_length=2048).to(input_device)
+            with torch.no_grad():
+                logits_base = model(**base_ids).logits
 
-        all_targets.append(torch.tensor(normed, dtype=torch.float32))
+            scores = []
+            for i in range(len(context)):
+                ablated = context[:i] + context[i+1:]
+                abl_ids = tokenizer(_build_prompt(tokenizer, ablated, question),
+                                    return_tensors="pt", truncation=True,
+                                    max_length=2048).to(input_device)
+                with torch.no_grad():
+                    logits_abl = model(**abl_ids).logits
+                scores.append(_kl_div(logits_base, logits_abl))
 
-    out_path = os.path.join(OUTPUT_DIR, "teacher_targets.pt")
+            # [0, 1] normalize
+            mn, mx = min(scores), max(scores)
+            if mx > mn:
+                normed = [(s - mn) / (mx - mn) for s in scores]
+            elif len(scores) == 1:
+                normed = [1.0]
+            else:
+                normed = [0.5] * len(scores)
+
+            all_targets.append(torch.tensor(normed, dtype=torch.float32))
+
+        # Checkpoint her 100 örnekte bir
+        if (len(all_targets) % 100) == 0:
+            torch.save(all_targets, ckpt_path)
+
     torch.save(all_targets, out_path)
+    # Tamamlandıktan sonra checkpoint'i temizle
+    if os.path.exists(ckpt_path):
+        os.remove(ckpt_path)
     print(f"✓ Etiketler kaydedildi → {out_path}")
 
 
