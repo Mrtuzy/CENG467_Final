@@ -11,7 +11,12 @@ def get_hf_token() -> str | None:
 
 def load_tokenizer(model_name: str):
     token = get_hf_token()
-    return AutoTokenizer.from_pretrained(model_name, token=token)
+    tok = AutoTokenizer.from_pretrained(model_name, token=token)
+    if tok.pad_token is None:
+        tok.pad_token = tok.eos_token
+    # Left-pad so position -1 is always the last real token (causal LM batching)
+    tok.padding_side = "left"
+    return tok
 
 
 def load_causal_lm(
