@@ -15,7 +15,7 @@ from tqdm import tqdm
 from datasets import load_from_disk
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from config import get_args, DATA_DIR, OUTPUT_DIR, TEACHER_MODEL_NAME
+from config import get_args, DATA_DIR, OUTPUT_DIR, TEACHER_MODEL_NAME, MAX_TRAIN_SAMPLES
 from model_loading import get_hf_token, load_causal_lm, load_tokenizer, model_input_device
 
 
@@ -47,6 +47,17 @@ def _kl_div(logits_base, logits_ablated):
     return F.kl_div(log_q, p, reduction="batchmean").item()
 
 
+def _kl_div_batched(logits_base_single, logits_ablated_batch):
+    """KL-div: logits_base_single [1, seq, V] vs logits_ablated_batch [N, seq, V].
+    Returns list of N scalar scores."""
+    p = F.softmax(logits_base_single[:, -1, :], dim=-1)  # [1, V]
+    p = p.expand(logits_ablated_batch.size(0), -1)        # [N, V]
+    log_q = F.log_softmax(logits_ablated_batch[:, -1, :], dim=-1)  # [N, V]
+    # per-sample KL
+    kl = (p * (p.log() - log_q)).sum(dim=-1)  # [N]
+    return kl.tolist()
+
+
 def generate_teacher_labels(smoke_test: bool = False):
     train_path = os.path.join(DATA_DIR, "train_processed")
     if not os.path.exists(train_path):
@@ -56,6 +67,11 @@ def generate_teacher_labels(smoke_test: bool = False):
     if smoke_test:
         n = min(5, len(train_ds))
         print(f"[SMOKE TEST] Sadece {n} örnek işlenecek.")
+        train_ds = train_ds.select(range(n))
+    else:
+        n = min(MAX_TRAIN_SAMPLES, len(train_ds))
+        if n < len(train_ds):
+            print(f"[Limit] {len(train_ds)} örnekten {n} tanesi kullanılacak (MAX_TRAIN_SAMPLES).")
         train_ds = train_ds.select(range(n))
 
     # ---- model yükleme ----
@@ -105,15 +121,21 @@ def generate_teacher_labels(smoke_test: bool = False):
             with torch.no_grad():
                 logits_base = model(**base_ids).logits
 
-            scores = []
-            for i in range(len(context)):
-                ablated = context[:i] + context[i+1:]
-                abl_ids = tokenizer(_build_prompt(tokenizer, ablated, question),
-                                    return_tensors="pt", truncation=True,
-                                    max_length=2048).to(input_device)
-                with torch.no_grad():
-                    logits_abl = model(**abl_ids).logits
-                scores.append(_kl_div(logits_base, logits_abl))
+            # tüm ablated prompt'ları tek batch'te çalıştır
+            ablated_prompts = [
+                _build_prompt(tokenizer, context[:i] + context[i+1:], question)
+                for i in range(len(context))
+            ]
+            abl_enc = tokenizer(
+                ablated_prompts,
+                return_tensors="pt",
+                padding=True,
+                truncation=True,
+                max_length=2048,
+            ).to(input_device)
+            with torch.no_grad():
+                logits_abl_batch = model(**abl_enc).logits
+            scores = _kl_div_batched(logits_base, logits_abl_batch)
 
             # [0, 1] normalize
             mn, mx = min(scores), max(scores)

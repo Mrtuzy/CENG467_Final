@@ -26,7 +26,7 @@ from tqdm import tqdm
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from config import (get_args, DATA_DIR, OUTPUT_DIR, MODEL_DIR, FIGURES_DIR,
                     TEACHER_MODEL_NAME, PROXY_MODEL_NAME, SBERT_MODEL_NAME,
-                    SBERT_DIM, CFC_UNITS, DELTA_T_MIN, BETA, TAU)
+                    SBERT_DIM, CFC_UNITS, DELTA_T_MIN, BETA, TAU, MAX_EVAL_SAMPLES)
 from train_cfc import CfCPruner
 from build_inputs import calculate_surprisal
 from model_loading import load_causal_lm, load_tokenizer, model_input_device
@@ -99,6 +99,11 @@ def run_evaluation(smoke_test: bool = False):
     test_ds = load_from_disk(test_path)
     if smoke_test:
         test_ds = test_ds.select(range(min(5, len(test_ds))))
+    else:
+        n = min(MAX_EVAL_SAMPLES, len(test_ds))
+        if n < len(test_ds):
+            print(f"[Limit] Test seti {len(test_ds)} → {n} örnek (MAX_EVAL_SAMPLES).")
+        test_ds = test_ds.select(range(n))
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     rng    = np.random.default_rng(RANDOM_SEED)

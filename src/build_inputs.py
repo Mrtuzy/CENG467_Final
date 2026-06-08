@@ -17,7 +17,7 @@ from sentence_transformers import SentenceTransformer
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from config import (get_args, DATA_DIR, OUTPUT_DIR,
                     PROXY_MODEL_NAME, SBERT_MODEL_NAME,
-                    DELTA_T_MIN, BETA)
+                    DELTA_T_MIN, BETA, MAX_TRAIN_SAMPLES)
 
 
 def calculate_surprisal(text: str, model, tokenizer, device: str) -> float:
@@ -31,6 +31,29 @@ def calculate_surprisal(text: str, model, tokenizer, device: str) -> float:
     return loss.item()
 
 
+def calculate_surprisal_batch(texts: list[str], model, tokenizer, device: str) -> list[float]:
+    """Birden fazla metni tek forward pass ile surprisal hesapla."""
+    if not texts:
+        return []
+    enc = tokenizer(texts, return_tensors="pt", padding=True,
+                    truncation=True, max_length=512).to(device)
+    with torch.no_grad():
+        out = model(**enc, labels=enc["input_ids"])
+        # per-token loss için logits'i manuel hesapla
+        logits = out.logits  # (B, T, V)
+    import torch.nn.functional as F
+    B, T, V = logits.shape
+    # shift: predict token t+1 from position t
+    shift_logits = logits[:, :-1, :].contiguous().view(-1, V)
+    shift_labels = enc["input_ids"][:, 1:].contiguous().view(-1)
+    pad_id = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id
+    losses = F.cross_entropy(shift_logits, shift_labels, ignore_index=pad_id, reduction="none")
+    losses = losses.view(B, T - 1)
+    attn = enc["attention_mask"][:, 1:].float()
+    per_sample = (losses * attn).sum(dim=1) / attn.sum(dim=1).clamp(min=1)
+    return per_sample.cpu().tolist()
+
+
 def build_inputs(smoke_test: bool = False):
     train_path = os.path.join(DATA_DIR, "train_processed")
     if not os.path.exists(train_path):
@@ -39,6 +62,11 @@ def build_inputs(smoke_test: bool = False):
     train_ds = load_from_disk(train_path)
     if smoke_test:
         train_ds = train_ds.select(range(min(5, len(train_ds))))
+    else:
+        n = min(MAX_TRAIN_SAMPLES, len(train_ds))
+        if n < len(train_ds):
+            print(f"[Limit] {len(train_ds)} örnekten {n} tanesi kullanılacak (MAX_TRAIN_SAMPLES).")
+        train_ds = train_ds.select(range(n))
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -54,6 +82,8 @@ def build_inputs(smoke_test: bool = False):
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     all_emb, all_dt = [], []
 
+    SURPRISAL_BATCH = 32  # DistilGPT2 küçük, daha büyük batch GPU'da hızlı
+
     print("Embedding + Δt hesaplanıyor …")
     for example in tqdm(train_ds):
         ctx = example["context"]
@@ -62,16 +92,17 @@ def build_inputs(smoke_test: bool = False):
             all_dt.append(torch.empty(0))
             continue
 
-        # SBERT embedding
+        # SBERT embedding (zaten batch)
         emb = sbert.encode(ctx, convert_to_tensor=True,
                            show_progress_bar=False)
         all_emb.append(emb.cpu())
 
-        # Δt = Δt_min + β · S(u)
-        dts = []
-        for utt in ctx:
-            s = calculate_surprisal(utt, proxy_model, proxy_tok, device)
-            dts.append(DELTA_T_MIN + BETA * s)
+        # Δt = Δt_min + β · S(u)  — batch surprisal
+        surprisals = []
+        for i in range(0, len(ctx), SURPRISAL_BATCH):
+            chunk = ctx[i : i + SURPRISAL_BATCH]
+            surprisals.extend(calculate_surprisal_batch(chunk, proxy_model, proxy_tok, device))
+        dts = [DELTA_T_MIN + BETA * s for s in surprisals]
         all_dt.append(torch.tensor(dts, dtype=torch.float32))
 
     torch.save(all_emb, os.path.join(OUTPUT_DIR, "embeddings.pt"))

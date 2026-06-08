@@ -38,6 +38,10 @@ LEARNING_RATE = 1e-3
 EPOCHS        = 30
 TAU           = 0.5          # pruning threshold
 
+# Dataset size limits — keeps teacher labeling and eval tractable on L4
+MAX_TRAIN_SAMPLES = 6000   # ~14% of full train set; plenty for 64-unit CfC
+MAX_EVAL_SAMPLES  = 1000   # test set cap for evaluate.py
+
 def get_args():
     """Parse CLI arguments shared by every script."""
     parser = argparse.ArgumentParser(description="Entropy-Driven CfC Pruning")
