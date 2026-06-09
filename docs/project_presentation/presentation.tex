@@ -346,49 +346,146 @@
     \textbf{The risk}
     \begin{itemize}
       \item Surprisal may not correlate with true turn importance on QReCC at all.
-      \item If $\rho \approx 0$, entropy adds no signal and training is wasted.
-      \item $\beta$, $\Delta t_{\min}$, $\tau$ affect faithfulness but are hard to tune end-to-end.
-    \end{itemize}
-
-    \textbf{The strategy}
-    \begin{itemize}
-      \item Seven model-free simulations, each answering one design question.
-      \item Each outputs a concrete config value or a go/no-go threshold.
-      \item Only if all sims pass $\rightarrow$ commit to training.
+      \item If that correlation $\rho \approx 0$, entropy adds no signal and training compute is wasted.
+      \item $\beta$, $\Delta t_{\min}$, $\tau$ all change faithfulness but are expensive to tune end-to-end with a 7B teacher.
     \end{itemize}
 
     \column{0.46\textwidth}
-    \includegraphics[width=\linewidth]{s3_proxy_quality_limit.png}
-    \vspace{0.2em}
-    \scriptsize S3: entropy-$\Delta t$ helps only when $\rho > \rho^* \approx 0.1$.
-    Verify on real QReCC before training.
+    \textbf{The strategy}
+    \begin{itemize}
+      \item Seven \emph{model-free} simulations, each isolating one design question.
+      \item Each one returns a concrete config value or a falsifiable go/no-go threshold.
+      \item Train only if every simulation passes --- otherwise the idea is rejected cheaply.
+    \end{itemize}
   \end{columns}
+
+  \vspace{0.6em}
+  \begin{block}{Reading the figures}
+    Across the suite, the recurring metric is \emph{importance recovery} ---
+    Spearman correlation between a method's per-turn score and the true latent
+    turn importance $u$. Higher means the pruner keeps the turns that matter.
+  \end{block}
 \end{frame}
 
-\begin{frame}{Simulation Suite: 7 Design Questions Answered}
+\begin{frame}{Simulation Suite: a Roadmap}
   \small
   \begin{tabular}{p{0.03\textwidth}p{0.38\textwidth}p{0.49\textwidth}}
     \toprule
     \# & Question & Result \\
     \midrule
-    S0 & Does analytic LTC commitment transfer to real ncps CfC? & $\rho = +0.944$; error $\approx 4\!\times\!10^{-10}$ \\
-    S1 & What is the analytic commitment--surprisal curve? & $d\varphi/dS = \lambda\beta(1{-}\varphi)$; 31.6\% turns saturate \\
-    S2 & Which $\beta^*$ and $\Delta t_{\min}^*$ maximise importance recovery? & $\beta^*=1.0$,\; $\Delta t_{\min}^*=0.05$ \\
-    S3 & What $\rho$ threshold makes entropy useful? (go/no-go) & $\rho^* \approx 0.1$ vs.\ uniform; $\rho \geq 0.5$ beats cosine \\
-    S4 & Does LOO-KL measure raw importance or marginal necessity? & KL $=$ marginal necessity; correct pruning target \\
-    S5 & Which $\Delta t$ mapping is robust to outlier surprisal? & Rank normalisation most robust \\
-    S6 & What compression--fidelity trade-off does the system achieve? & 40\% compression at 90\% fidelity; uniform 9\%, cosine 31\% \\
+    S0 & Does the commitment lever exist in the \emph{real} ncps CfC? & $\rho = +0.944$; analytic error $\approx 4\!\times\!10^{-10}$ \\
+    S1 & Is surprisal$\rightarrow$commitment a tautology? & No --- closed-form; but lever saturates at high $S$ \\
+    S2 & Which $\beta^*,\Delta t_{\min}^*$ maximise recovery? & $\beta^*=1.0$,\; $\Delta t_{\min}^*=0.05$ \\
+    S5 & Which $\Delta t$ mapping survives outlier surprisal? & Rank normalisation most robust \\
+    S4 & What does leave-one-out KL really measure? & Marginal answer-necessity = correct target \\
+    S3 & Does surprisal proxy importance well enough? & Go/no-go: $\rho^* \approx 0.1$; $\rho \geq 0.5$ beats cosine \\
+    S6 & What fidelity--compression does the system reach? & 40\% compression at 90\% fidelity \\
     \bottomrule
   \end{tabular}
+
+  \vspace{0.4em}
+  \footnotesize The next slides walk these in order: validity (S0--S1), design (S2, S5), label (S4), the critical test (S3), and the payoff (S6).
 \end{frame}
 
-\begin{frame}{Headline Result: Simulation S6 --- Fidelity vs.\ Compression}
+\begin{frame}{S0 --- Is the Commitment Lever Real?}
+  \begin{columns}[c,onlytextwidth]
+    \column{0.60\textwidth}
+    \includegraphics[width=\linewidth]{s0_substrate_faithfulness.png}
+
+    \column{0.38\textwidth}
+    \small
+    \textbf{Validity foundation.}
+    \begin{itemize}
+      \item Our analysis uses an LTC toy ($\varphi = 1 - e^{-\lambda \Delta t}$); we \emph{train} the ncps CfC.
+      \item Both rise monotonically with $\Delta t$: real CfC tracks the analytic curve at $\rho = +0.94$.
+      \item So a wider $\Delta t$ really does ``commit'' the state --- not an artefact of the toy model.
+    \end{itemize}
+  \end{columns}
+\end{frame}
+
+\begin{frame}{S1 --- Derived, Not Circular --- and It Saturates}
   \centering
-  \includegraphics[width=0.74\linewidth]{s6_endtoend_pruning.png}
+  \includegraphics[width=0.96\linewidth]{s1_mechanism_analytic.png}
+
+  \vspace{0.2em}
+  \small
+  \begin{columns}[T,onlytextwidth]
+    \column{0.48\textwidth}
+    \textbf{Left:} commitment is a \emph{closed-form} function of $\Delta t$ --- a derivation, so the surprisal$\rightarrow\varphi$ link is not a tautology.
+    \column{0.48\textwidth}
+    \textbf{Right:} $d\varphi/dS$ decays --- past a point, more surprisal adds no discrimination (31.6\% of turns saturate). This motivates S5.
+  \end{columns}
+\end{frame}
+
+\begin{frame}{S2 --- Choosing $\beta$ and $\Delta t_{\min}$ from the Data}
+  \centering
+  \includegraphics[width=0.96\linewidth]{s2_beta_dtmin_design.png}
+
+  \vspace{0.2em}
+  \small
+  \begin{columns}[T,onlytextwidth]
+    \column{0.48\textwidth}
+    \textbf{Left:} recovery over the $(\beta,\Delta t_{\min})$ grid peaks at $\beta^*=1.0$, $\Delta t_{\min}^*=0.05$ (star).
+    \column{0.48\textwidth}
+    \textbf{Right:} at $\beta=0$ (uniform $\Delta t$) recovery $\approx 0$ --- the entropy term, not the network alone, carries the signal.
+  \end{columns}
+\end{frame}
+
+\begin{frame}{S5 --- Which $\Delta t$ Mapping Survives Outliers?}
+  \begin{columns}[c,onlytextwidth]
+    \column{0.60\textwidth}
+    \includegraphics[width=\linewidth]{s5_mapping_function_design.png}
+
+    \column{0.38\textwidth}
+    \small
+    \textbf{Why it matters (from S1).}
+    \begin{itemize}
+      \item DistilGPT-2 surprisal is heavy-tailed: one outlier turn can monopolise a linear time budget.
+      \item Under injected outliers, \textbf{rank} normalisation keeps the highest recovery.
+      \item $\Rightarrow$ \texttt{build\_inputs.py} maps surprisal $\rightarrow \Delta t$ by rank.
+    \end{itemize}
+  \end{columns}
+\end{frame}
+
+\begin{frame}{S4 --- What Does the Teacher Label Measure?}
+  \begin{columns}[c,onlytextwidth]
+    \column{0.58\textwidth}
+    \includegraphics[width=\linewidth]{s4_loo_kl_redundancy.png}
+
+    \column{0.40\textwidth}
+    \small
+    Teacher labels come from \textbf{leave-one-out KL} on Mistral output.
+    \begin{itemize}
+      \item KL tracks answer-impact (TV) at $\approx 0.97$ \emph{regardless} of redundancy (blue).
+      \item Its link to \emph{raw} importance drops as turns repeat info (red, $0.81\!\to\!0.54$).
+      \item So KL $=$ \emph{marginal} answer-necessity --- exactly the right target: redundant turns are safe to prune.
+    \end{itemize}
+  \end{columns}
+\end{frame}
+
+\begin{frame}{S3 --- The Honest Go/No-Go}
+  \begin{columns}[c,onlytextwidth]
+    \column{0.60\textwidth}
+    \includegraphics[width=\linewidth]{s3_proxy_quality_limit.png}
+
+    \column{0.38\textwidth}
+    \small
+    \textbf{The single condition the method depends on.}
+    \begin{itemize}
+      \item Recovery of entropy-$\Delta t$ rises with $\rho(\text{surprisal},\text{importance})$.
+      \item Beats uniform once $\rho > \rho^* \approx 0.1$; beats the cosine baseline once $\rho \geq 0.5$.
+      \item \textbf{Action:} measure $\rho$ on real QReCC \emph{before} training. Below $\rho^*$ $\Rightarrow$ abort.
+    \end{itemize}
+  \end{columns}
+\end{frame}
+
+\begin{frame}{S6 --- Headline: Fidelity vs.\ Compression}
+  \centering
+  \includegraphics[width=0.72\linewidth]{s6_endtoend_pruning.png}
 
   \small
   Entropy-CfC: \textbf{40\% compression at 90\% fidelity}.
-  Uniform: 9\%.\enspace Cosine: 31\%.\enspace Random: 10\%.\enspace $\tau^* \approx 0.48$.
+  Uniform: 9\%.\enspace Cosine: 31\%.\enspace Random: 10\%.\enspace $\Rightarrow \tau^* \approx 0.48$.
 \end{frame}
 
 \begin{frame}{Entropy-Driven CfC Pruning: Architecture}
