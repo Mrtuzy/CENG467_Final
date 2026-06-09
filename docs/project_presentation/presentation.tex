@@ -280,40 +280,128 @@
   \end{block}
 \end{frame}
 
-\begin{frame}{CfC / LNN Extension}
-  \begin{block}{Motivation}
-    Fixed thresholds do not know whether a turn is easy, noisy, redundant, or dependent on earlier dialogue. We want a pruner that adapts over time.
+\begin{frame}{CfC Extension: The Core Idea}
+  \begin{block}{Where the idea came from}
+    When reading dense, information-rich text, humans slow down.
+    High-entropy words take longer to process because they carry more
+    unexpected information. Can we use this same signal to decide
+    which conversation turns deserve more ``processing time'' in a neural network?
   \end{block}
 
+  \vspace{0.4em}
   \begin{itemize}
-    \item We explore continuous-time neural models, especially Closed-form Continuous-time networks (CfCs).
-    \item CfCs model temporal dynamics without a heavy numerical ODE solver.\footnote{\url{https://www.nature.com/articles/s42256-022-00556-7}}
-    \item In our setting, each utterance or sentence receives an importance score.
-    \item The hidden state carries information across conversation turns.
+    \item Fixed thresholds do not know whether a turn is easy, noisy, redundant, or depends on earlier dialogue.
+    \item We explore Closed-form Continuous-time networks (CfCs): temporal dynamics without a heavy ODE solver.\footnote{\url{https://www.nature.com/articles/s42256-022-00556-7}}
+    \item Key insight: map per-turn \emph{surprisal} to a continuous time step $\Delta t_i$, so surprising turns get a wider integration window in the network's ODE.
   \end{itemize}
 \end{frame}
 
-\begin{frame}{Entropy-Driven CfC Pruning}
-  \small
-  \textbf{Idea: surprising utterances deserve more processing time.}
+\begin{frame}{Cognitive Motivation: Reading Time $\propto$ Surprisal}
+  \begin{block}{Surprisal theory (psycholinguistics)}
+    Reading time on a word is proportional to its surprisal $-\log P(w_j \mid w_{<j})$.
+    A word that violates expectations takes more cognitive effort to integrate.
+  \end{block}
 
-  \vspace{0.5em}
-  For utterance $u_i$, compute surprisal using a proxy LM:
+  \vspace{0.4em}
+  \begin{itemize}
+    \item Levy (2008): syntactic surprisal predicts word-by-word reading times.
+    \item Smith \& Levy (2013): the relationship is \emph{logarithmic} and holds across many corpora.
+    \item \textbf{Transfer to NLP:} if a turn is lexically surprising (high surprisal from a proxy LM), it likely introduces new information — and is more likely to be important for answering the current question.
+    \item We do not claim surprisal \emph{equals} importance; we ask whether it is a \emph{useful proxy} — and test this with a simulation before training.
+  \end{itemize}
+
+  \vspace{0.3em}
+  \footnotesize
+  Levy 2008, Cognition 106(3).\quad Smith \& Levy 2013, Cognition 128(3).
+\end{frame}
+
+\begin{frame}{From Reading Time to the CfC Time Step}
+  \small
+  For utterance $u_i$, compute surprisal with DistilGPT-2 (proxy LM):
   \[
     S(u_i) = -\frac{1}{N}\sum_{j=1}^{N}\log P(w_j \mid w_{<j})
   \]
 
-  Map surprisal to a continuous time step:
+  Map surprisal to a continuous time step (rank-normalised for outlier robustness):
   \[
-    \Delta t_i = \Delta t_{\min} + \beta S(u_i)
+    \Delta t_i = \Delta t_{\min} + \beta \cdot \frac{\text{rank}(S_i)}{T}
+  \]
+
+  The CfC network then integrates over $\Delta t_i$ at each turn.
+  The \emph{commitment fraction} measures how strongly the state ``locks on'':
+  \[
+    \varphi_i = 1 - e^{-\lambda \Delta t_i}
   \]
 
   \begin{itemize}
-    \item Input: SBERT embedding of each utterance/sentence plus time step.
-    \item Output: importance probability $p_i \in [0,1]$.
-    \item Teacher labels: leave-one-out impact on Mistral-7B output.
-    \item Training loss: mean squared error between predicted and teacher importance.
+    \item Large $\Delta t_i$ $\rightarrow$ large $\varphi_i$ $\rightarrow$ turn leaves a stronger trace in the hidden state $\rightarrow$ higher importance score.
+    \item Rank normalisation prevents one outlier surprisal from dominating the time budget (validated by Simulation S5).
   \end{itemize}
+\end{frame}
+
+\begin{frame}{Why Simulations Before Training?}
+  \begin{columns}[T,onlytextwidth]
+    \column{0.50\textwidth}
+    \textbf{The risk}
+    \begin{itemize}
+      \item Surprisal may not correlate with true turn importance on QReCC at all.
+      \item If the correlation $\rho \approx 0$, entropy adds no signal and training is wasted.
+      \item Hyperparameters $\beta$, $\Delta t_{\min}$, $\tau$ affect faithfulness but are hard to tune end-to-end.
+    \end{itemize}
+
+    \column{0.46\textwidth}
+    \textbf{The strategy}
+    \begin{itemize}
+      \item Seven model-free simulations, each answering one design question analytically.
+      \item Each simulation outputs a concrete config value or a go/no-go threshold.
+      \item Only if all sims pass do we commit to teacher-label generation and CfC training.
+    \end{itemize}
+  \end{columns}
+
+  \vspace{0.5em}
+  \begin{block}{Go/no-go condition (S3)}
+    Measure $\rho(\text{surprisal},\,\text{teacher-importance})$ on real QReCC \emph{before} training.
+    If $\rho < 0.1$: entropy adds nothing over uniform.
+    If $\rho \geq 0.5$: entropy beats cosine similarity.
+  \end{block}
+\end{frame}
+
+\begin{frame}{Simulation Suite: 7 Design Questions Answered}
+  \small
+  \begin{tabular}{p{0.03\textwidth}p{0.38\textwidth}p{0.49\textwidth}}
+    \toprule
+    \# & Question & Result \\
+    \midrule
+    S0 & Does analytic LTC commitment transfer to real ncps CfC? & $\rho = +0.944$; error $\approx 4\!\times\!10^{-10}$ \\
+    S1 & What is the analytic commitment--surprisal curve? & $d\varphi/dS = \lambda\beta(1{-}\varphi)$; 31.6\% turns saturate \\
+    S2 & Which $\beta^*$ and $\Delta t_{\min}^*$ maximise importance recovery? & $\beta^*=1.0$,\; $\Delta t_{\min}^*=0.05$ \\
+    S3 & What $\rho$ threshold makes entropy useful? (go/no-go) & $\rho^* \approx 0.1$ vs.\ uniform; $\rho \geq 0.5$ beats cosine \\
+    S4 & Does LOO-KL measure raw importance or marginal necessity? & KL $=$ marginal necessity; correct pruning target \\
+    S5 & Which $\Delta t$ mapping is robust to outlier surprisal? & Rank normalisation most robust \\
+    S6 & What compression--fidelity trade-off does the system achieve? & 40\% compression at 90\% fidelity; uniform 9\%, cosine 31\% \\
+    \bottomrule
+  \end{tabular}
+\end{frame}
+
+\begin{frame}{Entropy-Driven CfC Pruning: Architecture}
+  \small
+  \textbf{Simulation outputs $\rightarrow$ model design.}
+
+  \vspace{0.4em}
+  \begin{itemize}
+    \item \textbf{Input per turn:} SBERT embedding (dim 384) + rank-normalised $\Delta t_i$ from DistilGPT-2 surprisal.
+    \item \textbf{Hidden dynamics:} CfC cell; state $h_i$ integrates over $\Delta t_i$ (wider window = stronger commitment).
+    \item \textbf{Per-turn readout:} $\hat{p}_i = \sigma(W h_i + b)$, importance $\in [0,1]$.
+    \item \textbf{Teacher labels:} leave-one-out KL divergence on Mistral-7B-Instruct output distributions.
+    \item \textbf{Loss:} MSE between $\hat{p}_i$ and normalised teacher KL.
+    \item \textbf{Pruning:} discard turns where $\hat{p}_i < \tau^* \approx 0.48$ (from S6: 90\% fidelity target).
+  \end{itemize}
+
+  \vspace{0.3em}
+  \begin{tabular}{lll}
+    $\Delta t_{\min} = 0.05$ & $\beta = 1.0$ & $\tau^* \approx 0.48$ \\
+    \multicolumn{3}{l}{\small (all three derived from simulations, not hand-tuned)}
+  \end{tabular}
 \end{frame}
 
 \begin{frame}{CfC Evaluation Plan}
@@ -351,7 +439,8 @@
     \item Ran baseline and corrected gap-closing Colab experiments.
     \item Added coverage/noise metrics to diagnose pruning quality.
     \item Exported qualitative error-analysis candidates.
-    \item Designed the entropy-driven CfC pruning extension for multi-turn context.
+    \item Designed the entropy-driven CfC pruner: cognitive motivation, math derivation, and 7-simulation verification suite before training.
+    \item Derived all hyperparameters ($\beta^*$, $\Delta t_{\min}^*$, $\tau^*$, mapping) analytically from simulations.
   \end{itemize}
 \end{frame}
 
@@ -388,6 +477,8 @@
     \item Xu et al. 2024. RECOMP. \url{https://proceedings.iclr.cc/paper_files/paper/2024/hash/bda88ed2892f5e61c9a9bf215c566913-Abstract-Conference.html}
     \item Chirkova et al. 2025. Provence. \url{https://arxiv.org/abs/2501.16214}
     \item Hasani et al. 2022. Closed-form Continuous-time Neural Networks. \url{https://www.nature.com/articles/s42256-022-00556-7}
+    \item Levy 2008. Expectation-based Syntactic Comprehension. Cognition 106(3).
+    \item Smith \& Levy 2013. The effect of word predictability on reading time is logarithmic. Cognition 128(3).
   \end{itemize}
 \end{frame}
 
