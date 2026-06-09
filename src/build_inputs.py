@@ -17,7 +17,35 @@ from sentence_transformers import SentenceTransformer
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from config import (get_args, DATA_DIR, OUTPUT_DIR,
                     PROXY_MODEL_NAME, SBERT_MODEL_NAME,
-                    DELTA_T_MIN, BETA, MAX_TRAIN_SAMPLES)
+                    DELTA_T_MIN, BETA, DT_MAPPING, MAX_TRAIN_SAMPLES)
+
+
+def surprisal_to_dt(surprisals: list[float]) -> list[float]:
+    """Bir bağlamın surprisal'larını Δt'ye çevir (config.DT_MAPPING'e göre).
+
+    - "linear": Δt = Δt_min + β·S                (sınırsız, doğrusal)
+    - "rank"  : Δt = Δt_min + β·rank(S)/N         (sıra-normalize; aykırı surprisal'a
+                dayanıklı — bkz. simulations/cfc_proof S5). Rank, bağlam İÇİNDE alınır.
+    """
+    n = len(surprisals)
+    if DT_MAPPING == "rank":
+        if n <= 1:
+            return [DELTA_T_MIN + BETA * 0.5 for _ in surprisals]
+        # ortalama-sıra (bağ durumunda), (0,1] aralığına normalize
+        order = sorted(range(n), key=lambda i: surprisals[i])
+        ranks = [0.0] * n
+        i = 0
+        while i < n:
+            j = i
+            while j + 1 < n and surprisals[order[j + 1]] == surprisals[order[i]]:
+                j += 1
+            avg_rank = (i + j) / 2.0 + 1.0  # 1-tabanlı ortalama sıra
+            for k in range(i, j + 1):
+                ranks[order[k]] = avg_rank / n
+            i = j + 1
+        return [DELTA_T_MIN + BETA * r for r in ranks]
+    # varsayılan: linear
+    return [DELTA_T_MIN + BETA * s for s in surprisals]
 
 
 def calculate_surprisal(text: str, model, tokenizer, device: str) -> float:
@@ -97,12 +125,12 @@ def build_inputs(smoke_test: bool = False):
                            show_progress_bar=False)
         all_emb.append(emb.cpu())
 
-        # Δt = Δt_min + β · S(u)  — batch surprisal
+        # Δt = f(S(u))  — batch surprisal, sonra config.DT_MAPPING eşlemesi
         surprisals = []
         for i in range(0, len(ctx), SURPRISAL_BATCH):
             chunk = ctx[i : i + SURPRISAL_BATCH]
             surprisals.extend(calculate_surprisal_batch(chunk, proxy_model, proxy_tok, device))
-        dts = [DELTA_T_MIN + BETA * s for s in surprisals]
+        dts = surprisal_to_dt(surprisals)
         all_dt.append(torch.tensor(dts, dtype=torch.float32))
 
     torch.save(all_emb, os.path.join(OUTPUT_DIR, "embeddings.pt"))

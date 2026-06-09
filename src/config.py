@@ -30,8 +30,12 @@ TEACHER_MODEL_NAME = "mistralai/Mistral-7B-Instruct-v0.2"
 # CfC hyper-parameters
 # ---------------------------------------------------------------------------
 SBERT_DIM     = 384          # sentence-transformer output dimension
-DELTA_T_MIN   = 0.1
-BETA          = 1.0
+# --- entropi → Δt eşlemesi ---
+# Değerler simulations/cfc_proof kanıt-suite'inden gelir (bkz. GUIDE.md §5).
+DELTA_T_MIN   = 0.05         # S2: kurtarmayı maksimize eden Δt_min (eski varsayılan 0.1)
+BETA          = 1.0          # S2: optimum β (config zaten doğrulandı)
+DT_MAPPING    = "rank"       # S5: aykırı surprisal'a en dayanıklı eşleme
+                             #     {"linear": Δt_min+β·S, "rank": Δt_min+β·rank(S)/N}
 CFC_UNITS     = 64           # hidden size of CfC
 BATCH_SIZE    = 16
 LEARNING_RATE = 1e-3
