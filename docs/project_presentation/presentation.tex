@@ -7,6 +7,7 @@
 \usepackage[utf8]{inputenc}
 \usepackage{booktabs}
 \usepackage{graphicx}
+\graphicspath{{../../simulations/cfc_proof/figures/}}
 \usepackage{amsmath}
 \usepackage{array}
 \usepackage{hyperref}
@@ -345,25 +346,23 @@
     \textbf{The risk}
     \begin{itemize}
       \item Surprisal may not correlate with true turn importance on QReCC at all.
-      \item If the correlation $\rho \approx 0$, entropy adds no signal and training is wasted.
-      \item Hyperparameters $\beta$, $\Delta t_{\min}$, $\tau$ affect faithfulness but are hard to tune end-to-end.
+      \item If $\rho \approx 0$, entropy adds no signal and training is wasted.
+      \item $\beta$, $\Delta t_{\min}$, $\tau$ affect faithfulness but are hard to tune end-to-end.
+    \end{itemize}
+
+    \textbf{The strategy}
+    \begin{itemize}
+      \item Seven model-free simulations, each answering one design question.
+      \item Each outputs a concrete config value or a go/no-go threshold.
+      \item Only if all sims pass $\rightarrow$ commit to training.
     \end{itemize}
 
     \column{0.46\textwidth}
-    \textbf{The strategy}
-    \begin{itemize}
-      \item Seven model-free simulations, each answering one design question analytically.
-      \item Each simulation outputs a concrete config value or a go/no-go threshold.
-      \item Only if all sims pass do we commit to teacher-label generation and CfC training.
-    \end{itemize}
+    \includegraphics[width=\linewidth]{s3_proxy_quality_limit.png}
+    \vspace{0.2em}
+    \scriptsize S3: entropy-$\Delta t$ helps only when $\rho > \rho^* \approx 0.1$.
+    Verify on real QReCC before training.
   \end{columns}
-
-  \vspace{0.5em}
-  \begin{block}{Go/no-go condition (S3)}
-    Measure $\rho(\text{surprisal},\,\text{teacher-importance})$ on real QReCC \emph{before} training.
-    If $\rho < 0.1$: entropy adds nothing over uniform.
-    If $\rho \geq 0.5$: entropy beats cosine similarity.
-  \end{block}
 \end{frame}
 
 \begin{frame}{Simulation Suite: 7 Design Questions Answered}
@@ -381,6 +380,15 @@
     S6 & What compression--fidelity trade-off does the system achieve? & 40\% compression at 90\% fidelity; uniform 9\%, cosine 31\% \\
     \bottomrule
   \end{tabular}
+\end{frame}
+
+\begin{frame}{Headline Result: Simulation S6 --- Fidelity vs.\ Compression}
+  \centering
+  \includegraphics[width=0.74\linewidth]{s6_endtoend_pruning.png}
+
+  \small
+  Entropy-CfC: \textbf{40\% compression at 90\% fidelity}.
+  Uniform: 9\%.\enspace Cosine: 31\%.\enspace Random: 10\%.\enspace $\tau^* \approx 0.48$.
 \end{frame}
 
 \begin{frame}{Entropy-Driven CfC Pruning: Architecture}
