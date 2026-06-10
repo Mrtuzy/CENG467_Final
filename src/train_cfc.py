@@ -29,11 +29,15 @@ except ImportError:
 # ------------------------------------------------------------------ #
 class PruningDataset(Dataset):
     def __init__(self, embeddings, delta_ts, targets):
-        # Sadece boş olmayan örnekleri tut
+        # Embedding / Δt / hedef ÜÇÜ de aynı pozitif uzunlukta olmalı.
+        # (ör. bağlam dolu ama cevap boşsa teacher hedefi [] olur → eleriz)
         self.items = [
             (e, d, t) for e, d, t in zip(embeddings, delta_ts, targets)
-            if e.size(0) > 0
+            if e.size(0) > 0 and e.size(0) == d.size(0) == t.size(0)
         ]
+        dropped = len(embeddings) - len(self.items)
+        if dropped:
+            print(f"[PruningDataset] {dropped} örnek elendi (boş/uzunluk uyuşmazlığı).")
 
     def __len__(self):
         return len(self.items)
