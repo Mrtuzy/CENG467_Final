@@ -111,6 +111,8 @@ def run_evaluation(smoke_test: bool = False):
     # ---- lightweight modeller ----
     print("Modeller yükleniyor …")
     proxy_tok   = AutoTokenizer.from_pretrained(PROXY_MODEL_NAME)
+    if proxy_tok.pad_token is None:
+        proxy_tok.pad_token = proxy_tok.eos_token
     proxy_model = AutoModelForCausalLM.from_pretrained(PROXY_MODEL_NAME).to(device)
     proxy_model.eval()
 
