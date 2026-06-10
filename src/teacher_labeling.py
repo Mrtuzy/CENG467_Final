@@ -1,16 +1,21 @@
 """
-Faz 2 – Öğretmen Model ile Altın Standart Etiketleme
-=====================================================
-Mistral-7B-Instruct-v0.2'yi 4-bit quantization ile yükler.
-Her diyalogdaki her cümle için leave-one-out KL-Divergence
-yaklaşımı ile önem skoru (p_target) hesaplar ve tensör olarak
-Google Drive'a kaydeder.
+Faz 2 – Öğretmen Model ile Önem Etiketlemesi
+=============================================
+Hafif bir instruction-tuned LLM (config.TEACHER_MODEL_NAME) ile her
+diyalogdaki her turn için **cevap-koşullu leave-one-out ΔNLL** önem skoru
+hesaplar:
+
+    önem_i = NLL(cevap | bağlam − turn_i)  −  NLL(cevap | tam bağlam)
+
+Yani bir turn'ü attığımızda gold cevabın olabilirliği ne kadar düşüyorsa
+(NLL ne kadar artıyorsa) o turn o kadar önemlidir.  Generation veya tüm
+kelime dağılımı (full-vocab KL) gerekmez → eski Mistral-7B KL'ye göre çok
+daha hızlı ve "cevap için önem"i doğrudan ölçer.
 
 Kullanım:
     python src/teacher_labeling.py [--smoke_test]
 """
 import os, sys, torch
-import torch.nn.functional as F
 from tqdm import tqdm
 from datasets import load_from_disk
 
@@ -40,22 +45,22 @@ def _build_prompt(tokenizer, context_list, question):
     return f"<s>[INST] {messages[0]['content']} [/INST]"
 
 
-def _kl_div(logits_base, logits_ablated):
-    """KL-divergence between last-token distributions."""
-    p = F.softmax(logits_base[:, -1, :], dim=-1)
-    log_q = F.log_softmax(logits_ablated[:, -1, :], dim=-1)
-    return F.kl_div(log_q, p, reduction="batchmean").item()
+def _answer_nll(model, tokenizer, prompt: str, answer: str, device) -> float:
+    """Gold cevabın teacher-forcing ortalama NLL'si (sadece cevap tokenları)."""
+    prompt_ids = tokenizer(prompt, return_tensors="pt",
+                           truncation=True, max_length=2048).input_ids
+    full_ids = tokenizer(prompt + answer, return_tensors="pt",
+                         truncation=True, max_length=2048).input_ids.to(device)
 
+    n_prompt = prompt_ids.size(1)
+    if full_ids.size(1) <= n_prompt:          # cevap kırpıldı / boş
+        return 0.0
 
-def _kl_div_batched(logits_base_single, logits_ablated_batch):
-    """KL-div: logits_base_single [1, seq, V] vs logits_ablated_batch [N, seq, V].
-    Returns list of N scalar scores."""
-    p = F.softmax(logits_base_single[:, -1, :], dim=-1)  # [1, V]
-    p = p.expand(logits_ablated_batch.size(0), -1)        # [N, V]
-    log_q = F.log_softmax(logits_ablated_batch[:, -1, :], dim=-1)  # [N, V]
-    # per-sample KL
-    kl = (p * (p.log() - log_q)).sum(dim=-1)  # [N]
-    return kl.tolist()
+    labels = full_ids.clone()
+    labels[:, :n_prompt] = -100               # prompt tokenlarını maskele
+    with torch.no_grad():
+        loss = model(full_ids, labels=labels).loss
+    return float(loss.item())
 
 
 def generate_teacher_labels(smoke_test: bool = False):
@@ -75,17 +80,14 @@ def generate_teacher_labels(smoke_test: bool = False):
         train_ds = train_ds.select(range(n))
 
     # ---- model yükleme ----
+    # Qwen2.5-1.5B gated değil ve küçük → quantization gerekmez, fp16 yeterli.
     print(f"Öğretmen model yükleniyor: {TEACHER_MODEL_NAME}")
-    if not get_hf_token():
-        print("Uyari: HF_TOKEN/HUGGINGFACE_TOKEN bulunamadi. Gated modele erisim icin token gerekir.")
-    tokenizer = load_tokenizer(
-        TEACHER_MODEL_NAME,
-    )
+    tokenizer = load_tokenizer(TEACHER_MODEL_NAME)
     model = load_causal_lm(
         TEACHER_MODEL_NAME,
         device_map="auto",
         dtype=torch.float16,
-        quantize_4bit=True,
+        quantize_4bit=False,
     )
     model.eval()
     input_device = model_input_device(model)
@@ -103,41 +105,31 @@ def generate_teacher_labels(smoke_test: bool = False):
         all_targets = []
         start_idx   = 0
 
-    print("Leave-one-out etiketleme başlatılıyor …")
+    print("Cevap-koşullu leave-one-out ΔNLL etiketleme başlatılıyor …")
     for idx, example in enumerate(tqdm(train_ds)):
         if idx < start_idx:
             continue
 
         context  = example["context"]
         question = example["question"]
+        answer   = example.get("answer", "") or ""
 
-        if not context:
+        if not context or not answer.strip():
             all_targets.append(torch.tensor([], dtype=torch.float32))
         else:
-            # tam bağlam logits
-            base_ids = tokenizer(_build_prompt(tokenizer, context, question),
-                                 return_tensors="pt", truncation=True,
-                                 max_length=2048).to(input_device)
-            with torch.no_grad():
-                logits_base = model(**base_ids).logits
+            # Tam bağlamla cevabın NLL'si
+            full_prompt = _build_prompt(tokenizer, context, question)
+            nll_full = _answer_nll(model, tokenizer, full_prompt, answer, input_device)
 
-            # tüm ablated prompt'ları tek batch'te çalıştır
-            ablated_prompts = [
-                _build_prompt(tokenizer, context[:i] + context[i+1:], question)
-                for i in range(len(context))
-            ]
-            abl_enc = tokenizer(
-                ablated_prompts,
-                return_tensors="pt",
-                padding=True,
-                truncation=True,
-                max_length=2048,
-            ).to(input_device)
-            with torch.no_grad():
-                logits_abl_batch = model(**abl_enc).logits
-            scores = _kl_div_batched(logits_base, logits_abl_batch)
+            # Her turn'ü teker teker çıkarıp cevap NLL'sini ölç → ΔNLL
+            scores = []
+            for i in range(len(context)):
+                abl_prompt = _build_prompt(
+                    tokenizer, context[:i] + context[i+1:], question)
+                nll_abl = _answer_nll(model, tokenizer, abl_prompt, answer, input_device)
+                scores.append(max(0.0, nll_abl - nll_full))   # önem = NLL artışı
 
-            # [0, 1] normalize
+            # [0, 1] normalize  (CfC hedef ölçeği değişmesin)
             mn, mx = min(scores), max(scores)
             if mx > mn:
                 normed = [(s - mn) / (mx - mn) for s in scores]

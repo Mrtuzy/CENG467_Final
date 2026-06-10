@@ -28,7 +28,7 @@ from config import (get_args, DATA_DIR, OUTPUT_DIR, MODEL_DIR, FIGURES_DIR,
                     TEACHER_MODEL_NAME, PROXY_MODEL_NAME, SBERT_MODEL_NAME,
                     SBERT_DIM, CFC_UNITS, DELTA_T_MIN, BETA, TAU, MAX_EVAL_SAMPLES)
 from train_cfc import CfCPruner
-from build_inputs import calculate_surprisal
+from build_inputs import calculate_surprisal, surprisal_to_dt
 from model_loading import load_causal_lm, load_tokenizer, model_input_device
 
 RANDOM_SEED = 42
@@ -168,16 +168,17 @@ def run_evaluation(smoke_test: bool = False):
         row["full_tokens"] = full_tokens
 
         # --- (2) CfC Pruning ---
+        # Δt: eğitimle AYNI eşleme (config.DT_MAPPING, surprisal_to_dt) kullanılır.
         embs = sbert.encode(ctx, convert_to_tensor=True, show_progress_bar=False)
-        dts = [DELTA_T_MIN + BETA * calculate_surprisal(u, proxy_model, proxy_tok, device)
-               for u in ctx]
+        surprisals = [calculate_surprisal(u, proxy_model, proxy_tok, device) for u in ctx]
+        dts = surprisal_to_dt(surprisals)
         embs_b = embs.unsqueeze(0).to(device)
         dts_b  = torch.tensor(dts, dtype=torch.float32).unsqueeze(0).to(device)
         with torch.no_grad():
             scores = cfc(embs_b, timespans=dts_b).squeeze(0).cpu().numpy()
         cfc_ctx = [u for u, s in zip(ctx, scores) if s >= TAU]
         if not cfc_ctx:
-            best_idx = int(np.argmax(scores))
+            best_idx = int(np.argmax(np.nan_to_num(scores)))
             cfc_ctx  = [ctx[best_idx]]
         ans, ttft = _generate(llm, llm_tok, _build_prompt(llm_tok, cfc_ctx, q))
         rl = rouge.score(gt, ans)["rougeL"].fmeasure

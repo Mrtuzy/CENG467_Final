@@ -23,13 +23,14 @@ from tqdm import tqdm
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from config import (get_args, DATA_DIR, OUTPUT_DIR, MODEL_DIR, FIGURES_DIR,
                     TEACHER_MODEL_NAME, PROXY_MODEL_NAME, SBERT_MODEL_NAME,
-                    SBERT_DIM, CFC_UNITS, DELTA_T_MIN, BETA)
+                    SBERT_DIM, CFC_UNITS, DELTA_T_MIN, BETA, ABLATION_MAX_SAMPLES)
 from train_cfc import CfCPruner
-from build_inputs import calculate_surprisal
+from build_inputs import calculate_surprisal, surprisal_to_dt
 from model_loading import load_causal_lm, load_tokenizer, model_input_device
 from evaluate import _build_prompt, _generate, _count_tokens
 
-TAU_VALUES = [0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8]
+# 5 nokta, kalite/verimlilik eğrisini göstermeye yeter (eski 7'den hızlı)
+TAU_VALUES = [0.3, 0.4, 0.5, 0.6, 0.7]
 
 
 def run_ablation(smoke_test: bool = False):
@@ -40,6 +41,11 @@ def run_ablation(smoke_test: bool = False):
     test_ds = load_from_disk(test_path)
     if smoke_test:
         test_ds = test_ds.select(range(min(5, len(test_ds))))
+    else:
+        n = min(ABLATION_MAX_SAMPLES, len(test_ds))
+        if n < len(test_ds):
+            print(f"[Limit] Ablation {len(test_ds)} → {n} örnek (ABLATION_MAX_SAMPLES).")
+        test_ds = test_ds.select(range(n))
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -82,8 +88,9 @@ def run_ablation(smoke_test: bool = False):
             continue
 
         embs = sbert.encode(ctx, convert_to_tensor=True, show_progress_bar=False)
-        dts  = [DELTA_T_MIN + BETA * calculate_surprisal(u, proxy_model, proxy_tok, device)
-                for u in ctx]
+        # Δt: eğitimle AYNI eşleme (config.DT_MAPPING, surprisal_to_dt) kullanılır.
+        surprisals = [calculate_surprisal(u, proxy_model, proxy_tok, device) for u in ctx]
+        dts  = surprisal_to_dt(surprisals)
         embs_b = embs.unsqueeze(0).to(device)
         dts_b  = torch.tensor(dts, dtype=torch.float32).unsqueeze(0).to(device)
         with torch.no_grad():
@@ -102,7 +109,7 @@ def run_ablation(smoke_test: bool = False):
             ctx, q, gt, scores = item["ctx"], item["q"], item["gt"], item["scores"]
             pruned_ctx = [u for u, s in zip(ctx, scores) if s >= tau]
             if not pruned_ctx:
-                pruned_ctx = [ctx[int(np.argmax(scores))]]
+                pruned_ctx = [ctx[int(np.argmax(np.nan_to_num(scores)))]]
 
             ans, _ = _generate(llm, llm_tok, _build_prompt(llm_tok, pruned_ctx, q))
             rl = rouge.score(gt, ans)["rougeL"].fmeasure
