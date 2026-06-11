@@ -6,7 +6,8 @@
 ## 0. Tek cümlelik özet
 > Bir konuşmadaki **hangi geçmiş turn'lerin gerçekten gerekli** olduğunu öğrenen, sürekli-zamanlı
 > küçük bir sinir ağı (CfC) eğitiyoruz; gereksiz turn'leri atıp (pruning) LLM'e daha kısa bağlam
-> veriyoruz → **aynı cevap kalitesi, çok daha az token.**
+> vermeyi hedefledik; fakat gerçek QReCC deneyi gösterdi ki **DistilGPT-2 surprisal'ı turn öneminin
+> güvenilir proxy'si değil**, bu yüzden mevcut CfC eğitimi başarısız oldu.
 
 ---
 
@@ -20,10 +21,10 @@
   Girdisi turn'lerin **anlamsal temsili (SBERT)**; ayrıca bir **bilgi-teorik sinyali (surprisal → zaman)**
   hipotez olarak test ediyoruz.
 
-> ⚠️ **Dürüst bulgu (önemli sunum noktası):** "Surprisal, turn önemini öngörür mü?" hipotezini
-> eğitimden önce ölçtük (Spearman ρ ≈ **0**, hatta hafif negatif). **Öngörmüyor.** Yani projenin
-> gücü "entropy" sinyalinden değil, **CfC'nin öğrendiği içerik temsilinden** geliyor; Δt yalnızca
-> zayıf bir zamansal prior. Bunu gizlemek yerine **test edip raporluyoruz** — bilimsel olgunluk.
+> ⚠️ **Dürüst bulgu (sunumun ana noktası):** "Surprisal, turn önemini öngörür mü?" hipotezini
+> eğitimden önce ölçtük. Gerçek QReCC teacher label'larında ortalama Spearman ρ = **-0.074**.
+> Bu, simülasyonlarda belirlenen **go/no-go eşiği ρ\*=0.1'in altında**. Yani entropy→Δt fikrinin
+> kritik varsayımı kırıldı; eğitim metrikleri de bunu doğruladı.
 
 ---
 
@@ -42,9 +43,12 @@ QReCC diyalog                e_i (SBERT 384-d)  ┐
 5 aşama:
 1. **Veri:** QReCC → (bağlam turn'leri, soru, gold cevap).
 2. **Girdi temsili:** her turn için **SBERT embedding** `e_i` + **surprisal'dan türetilen Δt_i**.
-3. **Öğretmen etiketi:** bir LLM ile her turn'ün **gerçek önemi** `imp_i` (aşağıda).
+3. **Öğretmen etiketi:** bir LLM ile her turn'ün **cevap-koşullu önemi** `imp_i` (aşağıda).
 4. **CfC eğitimi:** `(e_i, Δt_i) → ŝ_i` öğren, hedef `imp_i` (regresyon).
 5. **Pruning + Değerlendirme:** `ŝ_i ≥ τ` olan turn'leri tut, LLM'e ver, kaliteyi/verimliliği ölç.
+
+> Bu koşuda 5. aşama tamamlanmadı: `eval_results.json` oluşmadı. Elimizde güvenle raporlanabilecek
+> çıktı: proxy go/no-go figürü, train/val loss, validation F1/precision/recall ve validation MAE.
 
 ---
 
@@ -104,6 +108,15 @@ $$ \mathcal{L} = \frac{\sum_i m_i\,(\hat{s}_i - \text{imp}_i)^2}{\sum_i m_i} $$
 
 AdamW, lr=1e-3, 20 epoch, 80/20 train-val. F1'i de τ=0.5 ikili eşikte raporluyoruz.
 
+**Bu koşudaki eğitim özeti:**
+- Train loss: **0.1293 → 0.1201** düştü.
+- Val loss: en iyi **0.1251** (epoch 6), final **0.1257**; yani genelleme iyileşmedi.
+- Val MAE: yaklaşık **0.300** civarında yatay kaldı.
+- En iyi val F1: **0.050** (epoch 19); precision **0.397**, recall sadece **0.027**.
+
+Yorum: model az sayıda turn'e "önemli" diyor, bu yüzden precision fena görünmüyor; fakat asıl
+önemli turn'lerin neredeyse tamamını kaçırıyor. Pruning için ölümcül olan kısım düşük recall.
+
 ### 3.6 Pruning kararı (çıkarım)
 $$ \hat{C} = \{\,u_i \in C : \hat{s}_i \ge \tau \,\}, \qquad \tau = 0.5 $$
 Hiçbir turn eşiği geçmezse → en yüksek skorlu turn tutulur (boş bağlam olmasın).
@@ -131,11 +144,27 @@ Kısaltılmış bağlamı LLM'e verip cevap ürettiriyoruz, 4 yöntemi **adil** 
 
 ---
 
-## 5. Sonuç anlatımı (rakamlar gelince doldur — ≈30 sn)
-- "CfC, **~%XX token azalması** sağlarken ROUGE-L'i Full'e çok yakın tutuyor."
-- "Aynı token bütçesinde CfC, **Random ve Cosine'dan yüksek** ROUGE-L veriyor → öğrenilmiş önem işe yarıyor."
-- "Eğitim eğrisi: val loss düşüyor, F1 yükseliyor → CfC öğretmen sinyalini öğreniyor."
-- (Varsa) "Ablation: τ arttıkça daha agresif pruning; τ≈0.5 kalite/verimlilik dengesi."
+## 5. Gerçek Sonuç Anlatımı (≈45 sn)
+- "Simülasyonlar mekanizmanın çalışabileceğini gösterdi, ama bunun tek kritik şartı vardı:
+  surprisal'ın gerçek önemle pozitif korele olması."
+- "QReCC üzerinde go/no-go testi bu şartın sağlanmadığını gösterdi: ortalama Spearman
+  **ρ=-0.074**, gerekli eşik **ρ\*=0.1**."
+- "Buna rağmen CfC'yi eğittik; eğitim loss'u düştü ama validation loss iyileşmedi, MAE
+  **0.300** civarında kaldı."
+- "τ=0.5 ile en iyi F1 sadece **0.050**; recall **0.027**. Yani model önemli turn'leri tutamıyor."
+- "Bu yüzden CfC için final ROUGE/token reduction iddiası yapmıyoruz. Bu koşu pozitif sonuç değil,
+  hipotezi test eden ve başarısızlık nedenini gösteren negatif sonuç."
+
+### Neden başarısız olduk?
+1. **Proxy varsayımı yanlış çıktı:** DistilGPT-2 surprisal'ı QReCC'deki cevap-koşullu turn önemini
+   taşımıyor. Şaşırtıcı bir turn cevap için gerekli olmayabiliyor; gerekli bir turn de sıradan
+   dilsel biçimde yazılmış olabiliyor.
+2. **Öğretmen hedefi seyrek ve zor:** Leave-one-out ΔNLL çoğu turn'e düşük skor veriyor; pozitif
+   turn sayısı az olunca τ=0.5 classifier recall'ı çöküyor.
+3. **CfC sinyal yerine prior öğreniyor olabilir:** Train loss azalıyor ama val loss sabit/kötüleşiyor;
+   bu, modelin genellenebilir önem sinyali yakalamadığını düşündürüyor.
+4. **Downstream değerlendirme yok:** `eval_results.json` oluşmadığı için "CfC şu kadar token azalttı"
+   veya "ROUGE-L'i korudu" demek doğru değil.
 
 ---
 
@@ -145,22 +174,27 @@ Kısaltılmış bağlamı LLM'e verip cevap ürettiriyoruz, 4 yöntemi **adil** 
 3. **Girdi (30s):** SBERT embedding + surprisal→Δt (denklem 3.1, 3.2).
 4. **CfC (60s):** LTC ODE → kapalı-form; Δt kapısı (denklem 3.3). "Küçük, hızlı, sürekli zaman."
 5. **Öğretmen (40s):** ΔNLL leave-one-out — "turn'ü at, cevap zorlaşıyor mu?" (denklem 3.4).
-6. **Eğitim+Pruning (30s):** maskeli MSE, τ eşiği (3.5, 3.6).
-7. **Sonuçlar (40s):** token azalması + ROUGE; Random/Cosine'ı geçiyoruz.
-8. **Kapanış (10s):** "Bilgi-teorik zaman + öğrenilmiş önem = ucuz ama kaliteli bağlam."
+6. **Go/no-go (40s):** gerçek QReCC'de ρ=-0.074; kritik varsayım kırıldı.
+7. **Eğitim sonucu (40s):** train loss düşüyor ama val loss/MAE/F1 başarısız; recall çok düşük.
+8. **Kapanış (10s):** "Mekanizma değil, proxy seçimi kırıldı; sonraki adım soru-koşullu/öğretmen-koşullu proxy."
 
 ---
 
 ## 7. Olası sorular (hazırlıklı ol)
-- **Neden Δt'ye surprisal? Neden sabit zaman değil?** → Surprisal, turn'ün bilgi yoğunluğunun proxy'si;
-  CfC'ye "bu turn önemli bir olay" sinyalini zaman üzerinden veriyoruz. Sabit zaman bu bilgiyi taşımaz.
+- **Neden Δt'ye surprisal? Neden sabit zaman değil?** → Hipotezimiz buydu: surprisal bilgi yoğunluğu
+  proxy'si olabilir ve CfC'ye "bu turn önemli bir olay" sinyali verebilir. Ama gerçek QReCC ölçümü
+  bunun çalışmadığını gösterdi; bu yüzden artık surprisal'ı tek başına savunmuyoruz.
 - **CfC vs sıradan RNN/LSTM?** → CfC sürekli-zamanı *yerel* destekler (Δt girdi), çok küçük ve stabil;
   düzensiz zaman aralıklarına LSTM'den daha doğal.
 - **Öğretmen neden 1.5B küçük model?** → Etiket sinyali *göreli* NLL farkı; küçük model bile "hangi turn
   cevabı değiştiriyor"u güvenilir sıralar. Hız için tercih ettik.
-- **τ'yu nasıl seçtiniz?** → 0.5 varsayılan; ablation ile kalite/token dengesini doğruluyoruz.
-- **Cosine zaten benzerlik buluyor, fark ne?** → Cosine soru-turn yüzey benzerliği; CfC *cevaba etki*yi
-  öğrenir (bazen düşük-benzerlikli ama kritik bir turn'ü tutar, alakalı görünen gürültüyü atar).
+- **τ'yu nasıl seçtiniz?** → 0.5 varsayılan eşik; bu koşuda kötü çalıştı. En iyi F1 0.050 ve recall
+  0.027 olduğu için sonraki denemede top-k/ranking loss veya validation-tuned threshold gerekir.
+- **Cosine zaten benzerlik buluyor, fark ne?** → İdeal olarak CfC cevaba etkiyi öğrenir; ama bu koşuda
+  CfC bunu öğrenemedi. Cosine baseline'ı geçme iddiası yok çünkü downstream eval tamamlanmadı.
+- **Bu tamamen başarısız mı?** → Son ürün olarak evet, başarılı pruner değil. Bilimsel süreç olarak
+  faydalı: simülasyondaki go/no-go kriteri gerçek veride hipotezi reddetti ve eğitim eğrileri bunu
+  doğruladı.
 
 ---
 

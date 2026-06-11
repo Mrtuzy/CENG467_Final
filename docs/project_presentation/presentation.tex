@@ -7,7 +7,7 @@
 \usepackage[utf8]{inputenc}
 \usepackage{booktabs}
 \usepackage{graphicx}
-\graphicspath{{../../simulations/cfc_proof/figures/}}
+\graphicspath{{../../simulations/cfc_proof/figures/}{../../outputs/figures/}}
 \usepackage{amsmath}
 \usepackage{array}
 \usepackage{hyperref}
@@ -383,37 +383,7 @@
   \end{tabular}
 
   \vspace{0.4em}
-  \footnotesize The next slides walk these in order: validity (S0--S1), design (S2, S5), label (S4), the critical test (S3), and the payoff (S6).
-\end{frame}
-
-\begin{frame}{S0 --- Is the Commitment Lever Real?}
-  \begin{columns}[c,onlytextwidth]
-    \column{0.60\textwidth}
-    \includegraphics[width=\linewidth]{s0_substrate_faithfulness.png}
-
-    \column{0.38\textwidth}
-    \small
-    \textbf{Validity foundation.}
-    \begin{itemize}
-      \item Our analysis uses an LTC toy ($\varphi = 1 - e^{-\lambda \Delta t}$); we \emph{train} the ncps CfC.
-      \item Both rise monotonically with $\Delta t$: real CfC tracks the analytic curve at $\rho = +0.94$.
-      \item So a wider $\Delta t$ really does ``commit'' the state --- not an artefact of the toy model.
-    \end{itemize}
-  \end{columns}
-\end{frame}
-
-\begin{frame}{S1 --- Derived, Not Circular --- and It Saturates}
-  \centering
-  \includegraphics[width=0.96\linewidth]{s1_mechanism_analytic.png}
-
-  \vspace{0.2em}
-  \small
-  \begin{columns}[T,onlytextwidth]
-    \column{0.48\textwidth}
-    \textbf{Left:} commitment is a \emph{closed-form} function of $\Delta t$ --- a derivation, so the surprisal$\rightarrow\varphi$ link is not a tautology.
-    \column{0.48\textwidth}
-    \textbf{Right:} $d\varphi/dS$ decays --- past a point, more surprisal adds no discrimination (31.6\% of turns saturate). This motivates S5.
-  \end{columns}
+  \footnotesize We deep-dive the two that decide the project: \textbf{S2} (does entropy --- not the network --- carry the signal?) and \textbf{S3} (the go/no-go test that real QReCC then failed).
 \end{frame}
 
 \begin{frame}{S2 --- Choosing $\beta$ and $\Delta t_{\min}$ from the Data}
@@ -427,38 +397,6 @@
     \textbf{Left:} recovery over the $(\beta,\Delta t_{\min})$ grid peaks at $\beta^*=1.0$, $\Delta t_{\min}^*=0.05$ (star).
     \column{0.48\textwidth}
     \textbf{Right:} at $\beta=0$ (uniform $\Delta t$) recovery $\approx 0$ --- the entropy term, not the network alone, carries the signal.
-  \end{columns}
-\end{frame}
-
-\begin{frame}{S5 --- Which $\Delta t$ Mapping Survives Outliers?}
-  \begin{columns}[c,onlytextwidth]
-    \column{0.60\textwidth}
-    \includegraphics[width=\linewidth]{s5_mapping_function_design.png}
-
-    \column{0.38\textwidth}
-    \small
-    \textbf{Why it matters (from S1).}
-    \begin{itemize}
-      \item DistilGPT-2 surprisal is heavy-tailed: one outlier turn can monopolise a linear time budget.
-      \item Under injected outliers, \textbf{rank} normalisation keeps the highest recovery.
-      \item $\Rightarrow$ \texttt{build\_inputs.py} maps surprisal $\rightarrow \Delta t$ by rank.
-    \end{itemize}
-  \end{columns}
-\end{frame}
-
-\begin{frame}{S4 --- What Does the Teacher Label Measure?}
-  \begin{columns}[c,onlytextwidth]
-    \column{0.58\textwidth}
-    \includegraphics[width=\linewidth]{s4_loo_kl_redundancy.png}
-
-    \column{0.40\textwidth}
-    \small
-    Teacher labels come from \textbf{leave-one-out KL} on Mistral output.
-    \begin{itemize}
-      \item KL tracks answer-impact (TV) at $\approx 0.97$ \emph{regardless} of redundancy (blue).
-      \item Its link to \emph{raw} importance drops as turns repeat info (red, $0.81\!\to\!0.54$).
-      \item So KL $=$ \emph{marginal} answer-necessity --- exactly the right target: redundant turns are safe to prune.
-    \end{itemize}
   \end{columns}
 \end{frame}
 
@@ -478,13 +416,21 @@
   \end{columns}
 \end{frame}
 
-\begin{frame}{S6 --- Headline: Fidelity vs.\ Compression}
-  \centering
-  \includegraphics[width=0.72\linewidth]{s6_endtoend_pruning.png}
+\begin{frame}{Real QReCC Go/No-Go Result}
+  \begin{columns}[c,onlytextwidth]
+    \column{0.60\textwidth}
+    \includegraphics[width=\linewidth]{proxy_quality_gonogo.png}
 
-  \small
-  Entropy-CfC: \textbf{40\% compression at 90\% fidelity}.
-  Uniform: 9\%.\enspace Cosine: 31\%.\enspace Random: 10\%.\enspace $\Rightarrow \tau^* \approx 0.48$.
+    \column{0.38\textwidth}
+    \small
+    \textbf{The real-data assumption failed.}
+    \begin{itemize}
+      \item Simulation S3 said entropy-$\Delta t$ only helps if surprisal correlates with teacher importance.
+      \item On the generated QReCC teacher labels, mean Spearman is \textbf{$-0.074$}.
+      \item This is below the go/no-go threshold $\rho^*=0.1$ and far below the cosine-beating target $\rho=0.5$.
+      \item We still trained the CfC as a stress test, but the core proxy signal was already weak.
+    \end{itemize}
+  \end{columns}
 \end{frame}
 
 \begin{frame}{Entropy-Driven CfC Pruning: Architecture}
@@ -496,16 +442,69 @@
     \item \textbf{Input per turn:} SBERT embedding (dim 384) + rank-normalised $\Delta t_i$ from DistilGPT-2 surprisal.
     \item \textbf{Hidden dynamics:} CfC cell; state $h_i$ integrates over $\Delta t_i$ (wider window = stronger commitment).
     \item \textbf{Per-turn readout:} $\hat{p}_i = \sigma(W h_i + b)$, importance $\in [0,1]$.
-    \item \textbf{Teacher labels:} leave-one-out KL divergence on Mistral-7B-Instruct output distributions.
-    \item \textbf{Loss:} MSE between $\hat{p}_i$ and normalised teacher KL.
-    \item \textbf{Pruning:} discard turns where $\hat{p}_i < \tau^* \approx 0.48$ (from S6: 90\% fidelity target).
+    \item \textbf{Teacher labels:} answer-conditioned leave-one-out $\Delta$NLL of the gold answer, scored with a lightweight LLM (Qwen2.5-1.5B-Instruct).
+    \item \textbf{Loss:} MSE between $\hat{p}_i$ and the normalised teacher importance.
+    \item \textbf{Pruning:} discard turns where $\hat{p}_i < \tau$, with $\tau = 0.5$.
   \end{itemize}
 
   \vspace{0.3em}
   \begin{tabular}{lll}
-    $\Delta t_{\min} = 0.05$ & $\beta = 1.0$ & $\tau^* \approx 0.48$ \\
-    \multicolumn{3}{l}{\small (all three derived from simulations, not hand-tuned)}
+    $\Delta t_{\min} = 0.05$ & $\beta = 1.0$ & $\tau = 0.5$ \\
+    \multicolumn{3}{l}{\small ($\beta$, $\Delta t_{\min}$ from simulations; $\tau$ at the default 0.5)}
   \end{tabular}
+\end{frame}
+
+\begin{frame}{CfC Training Curves}
+  \begin{columns}[c,onlytextwidth]
+    \column{0.60\textwidth}
+    \includegraphics[width=\linewidth]{train_val_loss.png}
+
+    \column{0.38\textwidth}
+    \small
+    \textbf{Training did not generalise.}
+    \begin{itemize}
+      \item Train loss decreased from \textbf{0.1293} to \textbf{0.1201}.
+      \item Validation loss barely improved, with best value \textbf{0.1251} at epoch 6, then drifted upward to \textbf{0.1257}.
+      \item This pattern suggests memorisation or regression to the target prior, not useful importance learning.
+    \end{itemize}
+  \end{columns}
+\end{frame}
+
+\begin{frame}{CfC Validation Metrics}
+  \begin{columns}[c,onlytextwidth]
+    \column{0.52\textwidth}
+    \includegraphics[width=\linewidth]{val_f1_curve.png}
+
+    \column{0.44\textwidth}
+    \includegraphics[width=\linewidth]{val_mae_curve.png}
+  \end{columns}
+
+  \vspace{0.35em}
+  \small
+  \begin{itemize}
+    \item Best validation F1 is only \textbf{0.050} at $\tau=0.5$; recall peaks at \textbf{0.027}.
+    \item Precision reaches about \textbf{0.397}, but only because the model predicts very few important turns.
+    \item MAE stays almost flat around \textbf{0.300}; the model is not learning calibrated per-turn scores.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Why the CfC Run Failed}
+  \small
+  \begin{tabular}{p{0.30\textwidth}p{0.58\textwidth}}
+    \toprule
+    Failure point & Evidence from this run \\
+    \midrule
+    Weak proxy channel & Surprisal--teacher Spearman mean is $-0.074$, below the $\rho^*=0.1$ go/no-go threshold. \\
+    Target sparsity / threshold mismatch & At $\tau=0.5$, recall stays below 0.03; almost all positive teacher turns are missed. \\
+    Overfitting without useful validation gain & Train loss falls, while validation loss is flat and then worsens after epoch 6. \\
+    No completed downstream comparison & The run produced training/proxy figures, but not \texttt{eval\_results.json}; we cannot claim ROUGE or token-reduction wins. \\
+    \bottomrule
+  \end{tabular}
+
+  \vspace{0.65em}
+  \begin{block}{Interpretation}
+    The CfC mechanism is still mathematically valid, but this experiment rejects the stronger claim that DistilGPT-2 surprisal is a reliable importance proxy for QReCC history turns.
+  \end{block}
 \end{frame}
 
 \begin{frame}{CfC Evaluation Plan}
@@ -532,7 +531,7 @@
 
   \vspace{0.8em}
   \begin{block}{Current status}
-    The CfC/LNN code and Colab notebooks are implemented as an exploratory extension, but final quantitative CfC results are not complete yet.
+    The CfC/LNN code and Colab notebook run through proxy checking and training. The current run is a negative result: final downstream ROUGE/token-reduction evaluation is not available yet.
   \end{block}
 \end{frame}
 
@@ -545,6 +544,7 @@
     \item Exported qualitative error-analysis candidates.
     \item Designed the entropy-driven CfC pruner: cognitive motivation, math derivation, and 7-simulation verification suite before training.
     \item Derived all hyperparameters ($\beta^*$, $\Delta t_{\min}^*$, $\tau^*$, mapping) analytically from simulations.
+    \item Ran the real-data proxy check and CfC training; the negative result identified surprisal--importance mismatch as the main blocker.
   \end{itemize}
 \end{frame}
 
@@ -554,8 +554,9 @@
     \item Port the final evaluation split from HotpotQA pilot runs to QReCC.
     \item Tune Provence and combined-pruning thresholds for conversational evidence coverage.
     \item Replace exact supporting-sentence coverage with a semantic history/evidence coverage metric.
-    \item Finish CfC teacher-label generation and training.
-    \item Run CfC against full context, random pruning, and cosine-history baselines.
+    \item Replace raw surprisal with stronger importance proxies, such as question-conditioned similarity, LOO $\Delta$NLL features, or learned teacher distillation.
+    \item Re-tune the positive threshold or use ranking losses/top-$k$ pruning instead of a fixed $\tau=0.5$ classifier.
+    \item Run CfC against full context, random pruning, and cosine-history baselines only after the proxy signal passes the go/no-go check.
     \item Evaluate on real QReCC dialogue histories instead of synthetic two-turn histories.
   \end{itemize}
 \end{frame}
