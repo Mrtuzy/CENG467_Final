@@ -228,35 +228,124 @@ def build_notebook(new_name, new_label, import_line, new_ctor, extra_cells=None)
 # --------------------------------------------------------------------------- #
 # Notebook 06 — Dense bi-encoder
 # --------------------------------------------------------------------------- #
+SAVE_DRIVE = """\
+# === Save results & figures to your own Google Drive ===
+from google.colab import drive
+import shutil, os, datetime
+
+drive.mount("/content/drive")
+
+# Destination folder in your Drive (created if missing).
+DRIVE_DIR = "/content/drive/MyDrive/CENG467_retrieval/dense"
+os.makedirs(DRIVE_DIR, exist_ok=True)
+
+# Copy the JSONL per-run results, the aggregate json, and the figure.
+to_copy = [
+    f"{OUT_DIR}/aggregates_{NEW_RETRIEVER_NAME}.json",
+    "outputs/figures/retrieval_dense_vs_bm25.png",
+]
+to_copy += [f"{OUT_DIR}/{r}_{p}.jsonl"
+            for r in ["bm25", NEW_RETRIEVER_NAME] for p in PRUNERS]
+
+stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M")
+saved = []
+for src_path in to_copy:
+    if os.path.exists(src_path):
+        base = os.path.basename(src_path)
+        dst = os.path.join(DRIVE_DIR, f"{stamp}__{base}")
+        shutil.copy(src_path, dst)
+        saved.append(dst)
+
+# Also save the comparison table as CSV.
+csv_path = os.path.join(DRIVE_DIR, f"{stamp}__comparison.csv")
+df.to_csv(csv_path, index=False)
+saved.append(csv_path)
+
+print("Saved to your Drive:")
+for s in saved:
+    print(" -", s)
+"""
+
 nb06 = build_notebook(
     new_name="dense",
     new_label="Dense Bi-Encoder (BGE)",
     import_line="from src.retrieval.dense_retriever import DenseRetriever",
     new_ctor='DenseRetriever(model_name="BAAI/bge-small-en-v1.5")',
+    extra_cells=[
+        md("## 6. Save to my Google Drive\n\n"
+           "Mounts your Drive and copies the aggregates, per-run JSONL files, the\n"
+           "comparison figure, and a CSV of the results table into\n"
+           "`MyDrive/CENG467_retrieval/dense/` (timestamped)."),
+        code(SAVE_DRIVE),
+    ],
 )
 
 # --------------------------------------------------------------------------- #
 # Notebook 07 — Cross-encoder reranker + 3-way merge
 # --------------------------------------------------------------------------- #
+SAVE_DRIVE_CE = """\
+# === Save results & figures to your own Google Drive ===
+from google.colab import drive
+import shutil, os, datetime
+
+drive.mount("/content/drive")
+
+DRIVE_DIR = "/content/drive/MyDrive/CENG467_retrieval/cross_encoder"
+os.makedirs(DRIVE_DIR, exist_ok=True)
+
+to_copy = [
+    f"{OUT_DIR}/aggregates_{NEW_RETRIEVER_NAME}.json",
+    "outputs/figures/retrieval_cross_encoder_vs_bm25.png",
+]
+to_copy += [f"{OUT_DIR}/{r}_{p}.jsonl"
+            for r in ["bm25", NEW_RETRIEVER_NAME] for p in PRUNERS]
+
+stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M")
+saved = []
+for src_path in to_copy:
+    if os.path.exists(src_path):
+        dst = os.path.join(DRIVE_DIR, f"{stamp}__{os.path.basename(src_path)}")
+        shutil.copy(src_path, dst)
+        saved.append(dst)
+
+csv_path = os.path.join(DRIVE_DIR, f"{stamp}__comparison.csv")
+df.to_csv(csv_path, index=False)
+saved.append(csv_path)
+
+print("Saved to your Drive:")
+for s in saved:
+    print(" -", s)
+"""
+
 THREEWAY = """\
 # === 3-way comparison: BM25 vs Dense vs Cross-Encoder ===
-# Loads the Dense aggregates from Notebook 06 if available; otherwise shows the
-# two retrievers from this notebook only.
+# Dense aggregates come from Notebook 06. Because each Colab session is
+# ephemeral, we read them back from your Drive (where Notebook 06 saved them).
 import json, glob
 import pandas as pd
 import matplotlib.pyplot as plt
 
 rows = list(aggregates)  # bm25 + cross_encoder from this run
-dense_path = f"{OUT_DIR}/aggregates_dense.json"
-if os.path.exists(dense_path):
-    with open(dense_path) as f:
-        dense_aggs = json.load(f)
+
+# Locate the latest dense aggregates: local repo first, else your Drive folder.
+dense_aggs = None
+local_dense = f"{OUT_DIR}/aggregates_dense.json"
+drive_dense_glob = "/content/drive/MyDrive/CENG467_retrieval/dense/*__aggregates_dense.json"
+if os.path.exists(local_dense):
+    dense_aggs = json.load(open(local_dense))
+    print("Loaded Dense aggregates from local repo.")
+else:
+    matches = sorted(glob.glob(drive_dense_glob))
+    if matches:
+        dense_aggs = json.load(open(matches[-1]))
+        print("Loaded Dense aggregates from Drive:", matches[-1])
+
+if dense_aggs:
     # keep only the new (dense) rows; bm25 is already present from this run
     rows += [a for a in dense_aggs if a["retriever"] != "bm25"]
-    print("Merged Dense aggregates from Notebook 06.")
 else:
-    print("Notebook 06 aggregates not found; run 06_dense_retriever.ipynb first "
-          "for the full 3-way comparison.")
+    print("Dense aggregates not found. Run 06_dense_retriever.ipynb first "
+          "(it saves them to your Drive) for the full 3-way comparison.")
 
 p0 = PRUNERS[0]
 rows = [a for a in rows if a["pruner"] == p0]
@@ -298,9 +387,13 @@ nb07 = build_notebook(
     import_line="from src.retrieval.cross_encoder_retriever import CrossEncoderRetriever",
     new_ctor='CrossEncoderRetriever(model_name="cross-encoder/ms-marco-MiniLM-L-6-v2")',
     extra_cells=[
-        md("## 6. Three-way comparison (BM25 / Dense / Cross-Encoder)\n\n"
+        md("## 6. Save to my Google Drive\n\n"
+           "Copies this notebook's Cross-Encoder + BM25 results into\n"
+           "`MyDrive/CENG467_retrieval/cross_encoder/` (timestamped)."),
+        code(SAVE_DRIVE_CE),
+        md("## 7. Three-way comparison (BM25 / Dense / Cross-Encoder)\n\n"
            "Run `06_dense_retriever.ipynb` first (same `N_SAMPLES`/`VAL_START`) so its\n"
-           "Dense aggregates are available to merge here."),
+           "Dense aggregates are saved to your Drive; this cell reads them back."),
         code(THREEWAY),
     ],
 )
