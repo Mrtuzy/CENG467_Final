@@ -1,0 +1,26 @@
+[
+  {
+    "retriever": "bm25",
+    "pruner": "no_pruning",
+    "n_samples": 50,
+    "faithfulness_mean": 0.77,
+    "em_mean": 0.1,
+    "f1_mean": 0.18587919255374577,
+    "compression_ratio_mean": 1.0,
+    "latency_mean_s": 3.7821080923080443,
+    "retrieval_recall_mean": 0.76,
+    "retrieval_mrr_mean": 0.8079999999999999
+  },
+  {
+    "retriever": "dense",
+    "pruner": "no_pruning",
+    "n_samples": 50,
+    "faithfulness_mean": 0.7143333333333334,
+    "em_mean": 0.1,
+    "f1_mean": 0.23068195774172787,
+    "compression_ratio_mean": 1.0,
+    "latency_mean_s": 2.748736119270325,
+    "retrieval_recall_mean": 0.9,
+    "retrieval_mrr_mean": 0.9440000000000001
+  }
+]

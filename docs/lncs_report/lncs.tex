@@ -14,8 +14,11 @@
 \usepackage{caption}
 \usepackage{url}
 %
-% Figure search paths (relative to this .tex file)
+% Figure search paths (relative to this .tex file).
+% {figures/} is the self-contained copy used for the Overleaf bundle; the
+% ../../ paths let the same file also build in-place inside the repo.
 \graphicspath{%
+  {figures/}%
   {../../simulations/cfc_proof/figures/}%
   {../../outputs/figures/}%
   {../../experiments/results/notebook5/}%
@@ -53,7 +56,11 @@ held under identical retrieval and generation conditions. Faithfulness is
 scored with a decompose-then-verify LLM-as-Judge. On a HotpotQA distractor
 pilot, real LLMLingua-2 attains the best judge faithfulness (0.711) but at
 near-zero verbatim supporting-fact coverage, exposing a coverage--noise
-tension that single metrics hide. Motivated by the conversational case, we
+tension that single metrics hide. Replacing the BM25 retriever with a dense
+bi-encoder or a cross-encoder reranker sharply improves retrieval quality
+(Recall@5 $0.76\!\to\!0.90$, MRR $0.81\!\to\!0.95$) and answer F1/EM, while judge
+faithfulness shifts only slightly---a further sign that retrieval correctness
+and faithfulness are distinct axes. Motivated by the conversational case, we
 further design an entropy-driven adaptive pruner built on Closed-form
 Continuous-time (CfC) networks, in which per-turn surprisal sets a continuous
 integration time step. A seven-simulation verification suite fixes every
@@ -89,7 +96,9 @@ We work on open-domain question answering with RAG. Our primary experiments use
 HotpotQA~\cite{yang2018hotpotqa} in the distractor setting, a multi-hop QA
 benchmark where each question is paired with ten passages: two supporting and
 eight distractors drawn from Wikipedia. The pipeline retrieves the top
-passages with BM25, optionally applies a pruning strategy to reduce length and
+passages with a configurable retriever (BM25 by default; we also compare a
+dense bi-encoder and a cross-encoder reranker in Section~\ref{sec:retriever}),
+optionally applies a pruning strategy to reduce length and
 noise, generates a short answer with an instruction-tuned SLM, and scores the
 answer's faithfulness with an LLM-as-Judge that decomposes the answer into
 atomic claims and verifies each against the context. The input is a question
@@ -318,6 +327,63 @@ coverage (0.222) confirms the Provence threshold is too aggressive for multi-hop
 QA. The broad lesson is that faithfulness, EM/F1, and coverage capture distinct
 failure modes, so no single metric should be treated as ground truth.
 
+\subsection{Retriever Comparison}\label{sec:retriever}
+
+All experiments so far hold the retriever fixed at BM25. To test whether the
+choice of retriever matters, we swap BM25 for two neural alternatives behind the
+same \texttt{index}/\texttt{retrieve} interface, holding the generator, judge,
+and pruner (no pruning) fixed so that any difference is attributable to
+retrieval alone: a \emph{dense bi-encoder} (BGE, \texttt{BAAI/bge-small-en-v1.5})
+that ranks passages by cosine similarity in a shared embedding space, and a
+\emph{cross-encoder reranker} (\texttt{ms-marco-MiniLM-L-6-v2}) that jointly
+attends over each (query, passage) pair. Because each HotpotQA question carries
+only ten candidates, the cross-encoder scores all of them directly as a strong
+single-stage retriever. Beyond the downstream answer metrics we report
+retrieval quality directly against the gold supporting passages: Recall@5
+(fraction of gold supporting titles retrieved) and MRR (reciprocal rank of the
+first gold passage). Table~\ref{tab:retriever} and Fig.~\ref{fig:retriever}
+summarise the 50-sample run.
+
+\begin{table}[t]
+\centering
+\caption{Retriever comparison --- 50 HotpotQA validation samples (indices
+600--649), no pruning, Mistral-7B-Instruct-v0.2. Recall@5 and MRR are measured
+against gold supporting passages.}\label{tab:retriever}
+\begin{tabular}{lcccccr}
+\toprule
+\textbf{Retriever} & \textbf{Recall@5} & \textbf{MRR} & \textbf{Faith.} & \textbf{EM} & \textbf{F1} & \textbf{Lat.\ (s)}\\
+\midrule
+BM25 (lexical)        & 0.760 & 0.808 & \textbf{0.770} & 0.100 & 0.186 & 3.78\\
+Dense bi-encoder (BGE)& \textbf{0.900} & 0.944 & 0.714 & 0.100 & 0.231 & 2.75\\
+Cross-encoder reranker& 0.850 & \textbf{0.947} & 0.747 & \textbf{0.140} & \textbf{0.261} & \textbf{2.21}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.85\textwidth]{retriever_comparison_3way.png}
+\caption{Retriever comparison on HotpotQA (no pruning, $n=50$). Both neural
+retrievers lift retrieval quality (Recall@5, MRR) and answer token-F1 over
+BM25, yet BM25 retains a small edge in judge faithfulness.}\label{fig:retriever}
+\end{figure}
+
+Both neural retrievers substantially outrank BM25 on retrieval quality:
+Recall@5 rises from 0.760 to 0.900 (dense) and 0.850 (cross-encoder), and MRR
+from 0.808 to roughly 0.945 for both, meaning the first gold passage is almost
+always ranked at or near the top. This better evidence translates into more
+correct answers---token F1 climbs from 0.186 (BM25) to 0.231 (dense) to 0.261
+(cross-encoder), and the cross-encoder also lifts exact match from 0.100 to
+0.140 while being the fastest end-to-end (2.21\,s vs.\ 3.78\,s). Interestingly,
+judge faithfulness moves the other way, dropping slightly from 0.770 (BM25) to
+0.714 (dense) and 0.747 (cross-encoder). We read this as another instance of the
+report's central theme: when BM25 supplies vaguer context, the generator more
+often produces short, hedged, or ``I don't know'' answers that are trivially
+faithful but uninformative, whereas stronger retrieval elicits more substantive,
+multi-claim answers that give the judge more to (occasionally) penalise. Overall
+the cross-encoder is the best end-to-end retriever here---highest EM/F1, top MRR,
+lowest latency---while the dense bi-encoder maximises raw recall.
+
 \section{Error Analysis and Generation Quality}
 
 Notebook~5 exports concrete error candidates
@@ -514,10 +580,13 @@ execution interface is Google Colab:
 \texttt{01\_data\_exploration.ipynb} (dataset checks),
 \texttt{02\_baseline\_results.ipynb} (baseline sanity),
 \texttt{05\_final\_colab\_runs.ipynb} (LLMLingua-2, two-turn history, judge
-calibration scaffold, error exports), and the LNN/CfC notebooks as exploratory
-artifacts. All seven pruners are implemented behind the shared registry, and
-result JSONL files, an aggregate summary, and error candidates are written under
-\texttt{experiments/results/}.
+calibration scaffold, error exports),
+\texttt{06\_dense\_retriever.ipynb} and \texttt{07\_cross\_encoder\_retriever.ipynb}
+(the retriever comparison of Section~\ref{sec:retriever}), and the LNN/CfC
+notebooks as exploratory artifacts. All seven pruners and all three retrievers
+(BM25, dense bi-encoder, cross-encoder) are implemented behind shared
+interfaces, and result JSONL files, an aggregate summary, and error candidates
+are written under \texttt{experiments/results/}.
 
 \section{Current Challenges and Next Steps}
 

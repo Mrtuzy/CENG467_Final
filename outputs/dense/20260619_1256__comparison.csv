@@ -1,0 +1,3 @@
+Retriever,Pruner,Recall@k,MRR,Faithfulness,EM,F1,Latency(s)
+bm25,no_pruning,0.76,0.808,0.77,0.1,0.186,3.782
+dense,no_pruning,0.9,0.944,0.714,0.1,0.231,2.749

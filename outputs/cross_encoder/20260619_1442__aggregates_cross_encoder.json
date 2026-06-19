@@ -1,0 +1,26 @@
+[
+  {
+    "retriever": "bm25",
+    "pruner": "no_pruning",
+    "n_samples": 50,
+    "faithfulness_mean": 0.7733333333333333,
+    "em_mean": 0.1,
+    "f1_mean": 0.18587919255374577,
+    "compression_ratio_mean": 1.0,
+    "latency_mean_s": 3.368230504989624,
+    "retrieval_recall_mean": 0.76,
+    "retrieval_mrr_mean": 0.8079999999999999
+  },
+  {
+    "retriever": "cross_encoder",
+    "pruner": "no_pruning",
+    "n_samples": 50,
+    "faithfulness_mean": 0.7466666666666667,
+    "em_mean": 0.14,
+    "f1_mean": 0.2613101420398499,
+    "compression_ratio_mean": 1.0,
+    "latency_mean_s": 2.212424817085266,
+    "retrieval_recall_mean": 0.85,
+    "retrieval_mrr_mean": 0.9466666666666668
+  }
+]

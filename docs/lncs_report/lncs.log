@@ -1,4 +1,4 @@
-This is pdfTeX, Version 3.141592653-2.6-1.40.29 (TeX Live 2026) (preloaded format=pdflatex 2026.3.23)  19 JUN 2026 14:01
+This is pdfTeX, Version 3.141592653-2.6-1.40.29 (TeX Live 2026) (preloaded format=pdflatex 2026.3.23)  19 JUN 2026 17:52
 entering extended mode
  restricted \write18 enabled.
  %&-line parsing enabled.
@@ -632,20 +632,20 @@ File: l3backend-pdftex.def 2025-10-09 L3 backend support: PDF output (pdfTeX)
 (./lncs.aux)
 \openout1 = `lncs.aux'.
 
-LaTeX Font Info:    Checking defaults for OML/cmm/m/it on input line 28.
-LaTeX Font Info:    ... okay on input line 28.
-LaTeX Font Info:    Checking defaults for OMS/cmsy/m/n on input line 28.
-LaTeX Font Info:    ... okay on input line 28.
-LaTeX Font Info:    Checking defaults for OT1/cmr/m/n on input line 28.
-LaTeX Font Info:    ... okay on input line 28.
-LaTeX Font Info:    Checking defaults for T1/cmr/m/n on input line 28.
-LaTeX Font Info:    ... okay on input line 28.
-LaTeX Font Info:    Checking defaults for TS1/cmr/m/n on input line 28.
-LaTeX Font Info:    ... okay on input line 28.
-LaTeX Font Info:    Checking defaults for OMX/cmex/m/n on input line 28.
-LaTeX Font Info:    ... okay on input line 28.
-LaTeX Font Info:    Checking defaults for U/cmr/m/n on input line 28.
-LaTeX Font Info:    ... okay on input line 28.
+LaTeX Font Info:    Checking defaults for OML/cmm/m/it on input line 31.
+LaTeX Font Info:    ... okay on input line 31.
+LaTeX Font Info:    Checking defaults for OMS/cmsy/m/n on input line 31.
+LaTeX Font Info:    ... okay on input line 31.
+LaTeX Font Info:    Checking defaults for OT1/cmr/m/n on input line 31.
+LaTeX Font Info:    ... okay on input line 31.
+LaTeX Font Info:    Checking defaults for T1/cmr/m/n on input line 31.
+LaTeX Font Info:    ... okay on input line 31.
+LaTeX Font Info:    Checking defaults for TS1/cmr/m/n on input line 31.
+LaTeX Font Info:    ... okay on input line 31.
+LaTeX Font Info:    Checking defaults for OMX/cmex/m/n on input line 31.
+LaTeX Font Info:    ... okay on input line 31.
+LaTeX Font Info:    Checking defaults for U/cmr/m/n on input line 31.
+LaTeX Font Info:    ... okay on input line 31.
 
 (/usr/local/texlive/2026/texmf-dist/tex/context/base/mkii/supp-pdf.mkii
 [Loading MPS to PDF converter (version 2006.09.02).]
@@ -671,25 +671,25 @@ e
 ))
 Package caption Info: Begin \AtBeginDocument code.
 Package caption Info: End \AtBeginDocument code.
-LaTeX Font Info:    Trying to load font information for U+msa on input line 42.
+LaTeX Font Info:    Trying to load font information for U+msa on input line 45.
 
 
 (/usr/local/texlive/2026/texmf-dist/tex/latex/amsfonts/umsa.fd
 File: umsa.fd 2013/01/14 v3.01 AMS symbols A
 )
-LaTeX Font Info:    Trying to load font information for U+msb on input line 42.
+LaTeX Font Info:    Trying to load font information for U+msb on input line 45.
 
 
 (/usr/local/texlive/2026/texmf-dist/tex/latex/amsfonts/umsb.fd
 File: umsb.fd 2013/01/14 v3.01 AMS symbols B
 )
-Overfull \hbox (14.01195pt too wide) in paragraph at lines 45--66
+Overfull \hbox (14.01195pt too wide) in paragraph at lines 48--73
 []\T1/cmr/m/n/9 Retrieval-augmented gen-er-a-tion (RAG) grounds lan-guage model
 
  []
 
 
-Overfull \hbox (14.06604pt too wide) in paragraph at lines 71--80
+Overfull \hbox (14.06604pt too wide) in paragraph at lines 78--87
 \T1/cmr/m/n/10 model in doc-u-ments fetched at in-fer-ence time, im-prov-ing pe
 r-for-mance on knowledge-
  []
@@ -699,135 +699,153 @@ r-for-mance on knowledge-
 {/usr/local/texlive/2026/texmf-var/fonts/map/pdftex/updmap/pdftex.map}{/usr/loc
 al/texlive/2026/texmf-dist/fonts/enc/dvips/cm-super/cm-super-t1.enc}{/usr/local
 /texlive/2026/texmf-dist/fonts/enc/dvips/cm-super/cm-super-ts1.enc}] [2]
-Overfull \hbox (1.01367pt too wide) in paragraph at lines 188--193
+[3]
+Overfull \hbox (1.01367pt too wide) in paragraph at lines 197--202
 \T1/cmr/m/n/10 context---the decompose-then-verify paradigm we adopt, with open
 -weight rather
  []
 
-[3] [4]
-Overfull \hbox (20.50891pt too wide) in paragraph at lines 275--281
+[4]
+Overfull \hbox (20.50891pt too wide) in paragraph at lines 284--290
 \T1/cmr/m/n/10 Notebook 5 re-ran the prob-lem-atic strate-gies un-der cor-recte
 d con-di-tions: LLMLingua-
  []
 
 
-Overfull \hbox (11.31671pt too wide) in paragraph at lines 275--281
+Overfull \hbox (11.31671pt too wide) in paragraph at lines 284--290
 \T1/cmr/m/n/10 2 with the \T1/cmtt/m/n/10 llmlingua \T1/cmr/m/n/10 pack-age and
  \T1/cmtt/m/n/10 use_llmlingua2=True \T1/cmr/m/n/10 (zero fall-backs recorded),
 
  []
 
-<../../experiments/results/notebook5/faithfulness_vs_compression.png, id=37, 57
-8.16pt x 433.62pt>
-File: ../../experiments/results/notebook5/faithfulness_vs_compression.png Graph
-ic file (type png)
-<use ../../experiments/results/notebook5/faithfulness_vs_compression.png>
-Package pdftex.def Info: ../../experiments/results/notebook5/faithfulness_vs_co
-mpression.png  used on input line 300.
+<figures/faithfulness_vs_compression.png, id=37, 578.16pt x 433.62pt>
+File: figures/faithfulness_vs_compression.png Graphic file (type png)
+<use figures/faithfulness_vs_compression.png>
+Package pdftex.def Info: figures/faithfulness_vs_compression.png  used on input
+ line 309.
 (pdftex.def)             Requested size: 249.92937pt x 187.44543pt.
 [5]
-Overfull \hbox (22.45288pt too wide) in paragraph at lines 323--326
+Overfull \hbox (53.47148pt too wide) in paragraph at lines 332--346
+\T1/cmr/m/n/10 lar-ity in a shared em-bed-ding space, and a \T1/cmr/m/it/10 cro
+ss-encoder reranker \T1/cmr/m/n/10 (\T1/cmtt/m/n/10 ms-marco-MiniLM-L-6-v2\T1/c
+mr/m/n/10 )
+ []
+
+[6 <./figures/faithfulness_vs_compression.png>]
+<figures/retriever_comparison_3way.png, id=47, 583.12856pt x 265.59225pt>
+File: figures/retriever_comparison_3way.png Graphic file (type png)
+<use figures/retriever_comparison_3way.png>
+Package pdftex.def Info: figures/retriever_comparison_3way.png  used on input l
+ine 365.
+(pdftex.def)             Requested size: 295.05711pt x 134.3844pt.
+
+Underfull \vbox (badness 5345) has occurred while \output is active []
+
+ [7 <./figures/retriever_comparison_3way.png>]
+Overfull \hbox (22.45288pt too wide) in paragraph at lines 389--392
 \T1/cmr/m/n/10 Notebook 5 ex-ports con-crete er-ror can-di-dates (\T1/cmtt/m/n/
 10 error_analysis_candidates.jsonl\T1/cmr/m/n/10 ).
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 337--337
+Underfull \hbox (badness 10000) in paragraph at lines 403--403
 []|\T1/cmr/m/n/9 Verbose-but-correct
  []
 
 
-Overfull \hbox (2.39986pt too wide) in paragraph at lines 368--371
+Overfull \hbox (2.39986pt too wide) in paragraph at lines 434--437
  \T1/cmr/m/it/10 Mech-a-nism.[] \T1/cmr/m/n/10 For ut-ter-ance $\OML/cmm/m/it/1
 0 u[]$ \T1/cmr/m/n/10 we com-pute mean to-ken sur-prisal with a DistilGPT-
  []
 
-[6 <../../experiments/results/notebook5/faithfulness_vs_compression.png>]
-Underfull \hbox (badness 1173) in paragraph at lines 398--398
+[8]
+Underfull \hbox (badness 1173) in paragraph at lines 464--464
 []|\T1/cmr/m/n/9 Which $\OML/cmm/m/it/9 ^^L[]; ^^At[]$ \T1/cmr/m/n/9 max-imise 
 re-cov-
  []
 
 
-Underfull \hbox (badness 2707) in paragraph at lines 401--401
+Underfull \hbox (badness 2707) in paragraph at lines 467--467
 []|\T1/cmr/m/n/9 Does sur-prisal proxy im-por-tance
  []
 
-<../../simulations/cfc_proof/figures/s2_beta_dtmin_design.png, id=47, 867.24pt 
-x 332.442pt>
-File: ../../simulations/cfc_proof/figures/s2_beta_dtmin_design.png Graphic file
- (type png)
-<use ../../simulations/cfc_proof/figures/s2_beta_dtmin_design.png>
-Package pdftex.def Info: ../../simulations/cfc_proof/figures/s2_beta_dtmin_desi
-gn.png  used on input line 418.
+<figures/s2_beta_dtmin_design.png, id=59, 867.24pt x 332.442pt>
+File: figures/s2_beta_dtmin_design.png Graphic file (type png)
+<use figures/s2_beta_dtmin_design.png>
+Package pdftex.def Info: figures/s2_beta_dtmin_design.png  used on input line 4
+84.
 (pdftex.def)             Requested size: 319.35301pt x 122.41824pt.
-<../../simulations/cfc_proof/figures/s3_proxy_quality_limit.png, id=48, 614.295
-pt x 361.35pt>
-File: ../../simulations/cfc_proof/figures/s3_proxy_quality_limit.png Graphic fi
-le (type png)
-<use ../../simulations/cfc_proof/figures/s3_proxy_quality_limit.png>
-Package pdftex.def Info: ../../simulations/cfc_proof/figures/s3_proxy_quality_l
-imit.png  used on input line 429.
+<figures/s3_proxy_quality_limit.png, id=60, 614.295pt x 361.35pt>
+File: figures/s3_proxy_quality_limit.png Graphic file (type png)
+<use figures/s3_proxy_quality_limit.png>
+Package pdftex.def Info: figures/s3_proxy_quality_limit.png  used on input line
+ 495.
 (pdftex.def)             Requested size: 170.09244pt x 100.0525pt.
-<../../outputs/figures/proxy_quality_gonogo.png, id=49, 578.16pt x 317.988pt>
-File: ../../outputs/figures/proxy_quality_gonogo.png Graphic file (type png)
-<use ../../outputs/figures/proxy_quality_gonogo.png>
-Package pdftex.def Info: ../../outputs/figures/proxy_quality_gonogo.png  used o
-n input line 435.
+<figures/proxy_quality_gonogo.png, id=61, 578.16pt x 317.988pt>
+File: figures/proxy_quality_gonogo.png Graphic file (type png)
+<use figures/proxy_quality_gonogo.png>
+Package pdftex.def Info: figures/proxy_quality_gonogo.png  used on input line 5
+01.
 (pdftex.def)             Requested size: 170.09244pt x 93.54848pt.
 
-Overfull \hbox (11.18198pt too wide) in paragraph at lines 442--453
+Overfull \hbox (11.18198pt too wide) in paragraph at lines 508--519
  \T1/cmr/m/it/10 Real-data re-sult: an hon-est neg-a-tive.[] \T1/cmr/m/n/10 On 
 QReCC teacher la-bels (answer-conditioned
  []
 
-[7]
-<../../outputs/figures/train_val_loss.png, id=57, 578.16pt x 289.08pt>
-File: ../../outputs/figures/train_val_loss.png Graphic file (type png)
-<use ../../outputs/figures/train_val_loss.png>
-Package pdftex.def Info: ../../outputs/figures/train_val_loss.png  used on inpu
-t line 456.
+<figures/train_val_loss.png, id=62, 578.16pt x 289.08pt>
+File: figures/train_val_loss.png Graphic file (type png)
+<use figures/train_val_loss.png>
+Package pdftex.def Info: figures/train_val_loss.png  used on input line 522.
 (pdftex.def)             Requested size: 215.21489pt x 107.60634pt.
-<../../outputs/figures/val_f1_curve.png, id=58, 578.16pt x 289.08pt>
-File: ../../outputs/figures/val_f1_curve.png Graphic file (type png)
-<use ../../outputs/figures/val_f1_curve.png>
-Package pdftex.def Info: ../../outputs/figures/val_f1_curve.png  used on input 
-line 466.
+<figures/val_f1_curve.png, id=63, 578.16pt x 289.08pt>
+File: figures/val_f1_curve.png Graphic file (type png)
+<use figures/val_f1_curve.png>
+Package pdftex.def Info: figures/val_f1_curve.png  used on input line 532.
 (pdftex.def)             Requested size: 170.09244pt x 85.04407pt.
-<../../outputs/figures/val_mae_curve.png, id=59, 578.16pt x 289.08pt>
-File: ../../outputs/figures/val_mae_curve.png Graphic file (type png)
-<use ../../outputs/figures/val_mae_curve.png>
-Package pdftex.def Info: ../../outputs/figures/val_mae_curve.png  used on input
- line 470.
+<figures/val_mae_curve.png, id=64, 578.16pt x 289.08pt>
+File: figures/val_mae_curve.png Graphic file (type png)
+<use figures/val_mae_curve.png>
+Package pdftex.def Info: figures/val_mae_curve.png  used on input line 536.
 (pdftex.def)             Requested size: 170.09244pt x 85.04407pt.
 
-Overfull \hbox (10.77802pt too wide) in paragraph at lines 476--481
+Overfull \hbox (10.77802pt too wide) in paragraph at lines 542--547
 \T1/cmr/m/n/10 lever at $\OML/cmm/m/it/10 ^^Z \OT1/cmr/m/n/10 = +0\OML/cmm/m/it
 /10 :\OT1/cmr/m/n/10 944$\T1/cmr/m/n/10 ), but this ex-per-i-ment \T1/cmr/m/it/
 10 re-jects \T1/cmr/m/n/10 the stronger claim that DistilGPT-
  []
 
-[8]
-Overfull \hbox (16.32938pt too wide) in paragraph at lines 510--521
+[9] [10 <./figures/s2_beta_dtmin_design.png> <./figures/s3_proxy_quality_limit.
+png> <./figures/proxy_quality_gonogo.png>]
+Overfull \hbox (16.32938pt too wide) in paragraph at lines 576--590
 \T1/cmr/m/n/10 The repos-i-tory ($https : / / github . com / Mrtuzy / CENG467 _
  Final$) is a mod-u-lar Python
  []
 
-[9 <../../simulations/cfc_proof/figures/s2_beta_dtmin_design.png> <../../simula
-tions/cfc_proof/figures/s3_proxy_quality_limit.png> <../../outputs/figures/prox
-y_quality_gonogo.png>] [10 <../../outputs/figures/train_val_loss.png> <../../ou
-tputs/figures/val_f1_curve.png> <../../outputs/figures/val_mae_curve.png>]
-[11] [12] (./lncs.aux)
+
+Overfull \hbox (99.26746pt too wide) in paragraph at lines 576--590
+\T1/cmr/m/n/10 (LLMLingua-2, two-turn his-tory, judge cal-i-bra-tion scaf-fold,
+ er-ror ex-ports), \T1/cmtt/m/n/10 06_dense_retriever.ipynb
+ []
+
+
+Overfull \hbox (15.67676pt too wide) in paragraph at lines 576--590
+\T1/cmr/m/n/10 and \T1/cmtt/m/n/10 07_cross_encoder_retriever.ipynb \T1/cmr/m/n
+/10 (the re-triever com-par-i-son of Sec-tion 5.3[]),
+ []
+
+[11 <./figures/train_val_loss.png> <./figures/val_f1_curve.png> <./figures/val_
+mae_curve.png>] [12] [13] (./lncs.aux)
  ***********
 LaTeX2e <2025-11-01>
 L3 programming layer <2026-01-19>
  ***********
  ) 
 Here is how much of TeX's memory you used:
- 15727 strings out of 467525
- 313076 string characters out of 5418982
- 704000 words of memory out of 5000000
- 44379 multiletter control sequences out of 15000+600000
+ 15739 strings out of 467525
+ 312518 string characters out of 5418982
+ 703087 words of memory out of 5000000
+ 44391 multiletter control sequences out of 15000+600000
  642554 words of font info for 75 fonts, out of 8000000 for 9000
  1141 hyphenation exceptions out of 8191
  84i,13n,104p,424b,414s stack positions out of 10000i,1000n,20000p,200000b,200000s
@@ -854,10 +872,10 @@ fonts/type1/public/cm-super/sfti0900.pfb></usr/local/texlive/2026/texmf-dist/fo
 nts/type1/public/cm-super/sfti1000.pfb></usr/local/texlive/2026/texmf-dist/font
 s/type1/public/cm-super/sftt0900.pfb></usr/local/texlive/2026/texmf-dist/fonts/
 type1/public/cm-super/sftt1000.pfb>
-Output written on lncs.pdf (12 pages, 788100 bytes).
+Output written on lncs.pdf (13 pages, 837934 bytes).
 PDF statistics:
- 182 PDF objects out of 1000 (max. 8388607)
- 105 compressed objects within 2 object streams
+ 188 PDF objects out of 1000 (max. 8388607)
+ 108 compressed objects within 2 object streams
  0 named destinations out of 1000 (max. 500000)
- 48 words of extra memory for PDF output out of 10000 (max. 10000000)
+ 53 words of extra memory for PDF output out of 10000 (max. 10000000)
 
