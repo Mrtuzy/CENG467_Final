@@ -1,0 +1,632 @@
+% LLNCS report for CENG 467 Final Project
+% Faithfulness Under Pressure: Context and History Pruning for RAG
+%
+\documentclass[runningheads]{llncs}
+%
+\usepackage[T1]{fontenc}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{array}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta}
+\usepackage{caption}
+\usepackage{url}
+%
+% Figure search paths (relative to this .tex file)
+\graphicspath{%
+  {../../simulations/cfc_proof/figures/}%
+  {../../outputs/figures/}%
+  {../../experiments/results/notebook5/}%
+}
+%
+\usepackage{color}
+\renewcommand\UrlFont{\color{blue}\rmfamily}
+\urlstyle{rm}
+%
+\begin{document}
+%
+\title{Faithfulness Under Pressure: Context and\\ History Pruning Strategies for RAG Faithfulness\\ in Small Language Models}
+%
+\titlerunning{Faithfulness Under Pressure}
+%
+\author{Mert G\"{u}den\inst{1} \and Berkay Fehmi Tekin\inst{1}}
+%
+\authorrunning{M. G\"{u}den and B. F. Tekin}
+%
+\institute{CENG 467 -- Natural Language Understanding and Generation\\
+\email{\{300201013, 300201090\}}\\
+\url{https://github.com/Mrtuzy/CENG467_Final}}
+%
+\maketitle
+%
+\begin{abstract}
+Retrieval-augmented generation (RAG) grounds language model outputs in
+retrieved documents, but small language models (SLMs) remain vulnerable to
+the noisy, lengthy contexts that retrieval produces. We study whether
+\emph{context pruning} can make SLM answers more faithful to the retrieved
+evidence. We implement a modular pruning harness with seven strategies
+spanning no pruning, naive truncation, RECOMP-style extraction, LLMLingua-2
+token compression, Provence sentence pruning, and history-aware pruning, all
+held under identical retrieval and generation conditions. Faithfulness is
+scored with a decompose-then-verify LLM-as-Judge. On a HotpotQA distractor
+pilot, real LLMLingua-2 attains the best judge faithfulness (0.711) but at
+near-zero verbatim supporting-fact coverage, exposing a coverage--noise
+tension that single metrics hide. Motivated by the conversational case, we
+further design an entropy-driven adaptive pruner built on Closed-form
+Continuous-time (CfC) networks, in which per-turn surprisal sets a continuous
+integration time step. A seven-simulation verification suite fixes every
+hyperparameter analytically and produces a falsifiable go/no-go test; on real
+QReCC teacher labels the surprisal--importance correlation is
+$-0.074$, below the $\rho^{*}=0.1$ threshold, and the trained CfC fails to
+generalise. We report this as an honest negative result and discuss its
+implications for adaptive pruning.
+\keywords{Retrieval-augmented generation \and Context pruning \and
+Faithfulness \and LLM-as-Judge \and Small language models}
+\end{abstract}
+%
+\section{Introduction and Problem Definition}
+
+Retrieval-augmented generation (RAG)~\cite{lewis2020rag} grounds the output of
+a language model in documents fetched at inference time, improving performance
+on knowledge-intensive tasks and reducing
+hallucination~\cite{shuster2021retrieval}. The promise of RAG, however, comes
+with a cost: the retriever returns long passages that mix genuine evidence with
+near-misses, stale entities, and distractors. Small language models (SLMs),
+which are attractive for cost and latency, are especially sensitive to such
+noise, and long-context models are known to underuse evidence buried in the
+middle of a prompt~\cite{liu2024lost}.
+
+This project asks a single question: \emph{when an SLM receives long, noisy
+retrieved context, can pruning make its answer more faithful to the evidence?}
+\emph{Faithfulness}---the degree to which a generated answer is grounded in the
+retrieved context---is a central quality dimension for RAG, yet it is hard to
+measure automatically and is precisely what degrades under noisy context.
+
+\paragraph{Task.}
+We work on open-domain question answering with RAG. Our primary experiments use
+HotpotQA~\cite{yang2018hotpotqa} in the distractor setting, a multi-hop QA
+benchmark where each question is paired with ten passages: two supporting and
+eight distractors drawn from Wikipedia. The pipeline retrieves the top
+passages with BM25, optionally applies a pruning strategy to reduce length and
+noise, generates a short answer with an instruction-tuned SLM, and scores the
+answer's faithfulness with an LLM-as-Judge that decomposes the answer into
+atomic claims and verifies each against the context. The input is a question
+(plus optional dialogue history); the output is a short answer and its
+faithfulness score. The task is therefore open-domain QA coupled to a
+reference-free \emph{evaluation} sub-task.
+
+\paragraph{Technical challenge.}
+The difficulty is threefold. First, faithfulness is not directly measurable
+without expensive human annotation; we approximate it with a calibrated
+LLM-as-Judge~\cite{es2023ragas} anchored by Cohen's $\kappa$ against human
+labels. Second, pruning introduces a \emph{coverage--noise trade-off}:
+aggressive compression can remove the very sentences that support the correct
+answer. Third, SLMs hallucinate more under long or noisy contexts, making
+pruning quality decisive. The seven strategies we evaluate span from no pruning
+to combined semantic and history-aware compression, letting us isolate the
+effect of each design choice.
+
+\paragraph{Topic evolution.}
+The work began on multi-hop distractor QA (HotpotQA) and progressively shifted
+toward the \emph{conversational} case (QReCC~\cite{anantha2021qrecc}), where the
+central problem is deciding which past turns and retrieved passages still matter
+for the current question. HotpotQA runs are retained as implementation sanity
+checks; the conversational direction motivates the adaptive CfC pruner of
+Section~\ref{sec:cfc}.
+
+\section{Dataset and Benchmark Status}
+
+We use HotpotQA (distractor) loaded via the HuggingFace \texttt{datasets}
+library (\texttt{load\_dataset("hotpot\_qa", "distractor")}), with roughly
+90{,}447 training and 7{,}405 validation samples. We fine-tune no generator;
+all experimental samples come from the validation split. Each sample provides a
+question, a short gold answer (a span or yes/no value), ten titled passages,
+and supporting-fact labels marking the relevant sentences. During preprocessing
+we flatten each passage's sentences into a single string, apply whitespace
+tokenization for BM25 indexing, and truncate passages to a configurable token
+budget. The loader (\texttt{src/data/loader.py}) writes cleaned JSONL records,
+which are ready for the retrieval and pruning stages.
+
+The conversational benchmark, QReCC~\cite{anantha2021qrecc}, contains about
+14K conversations and 81K question--answer pairs over a 54M-passage web
+collection, with each sample exposing the original question, conversational
+context, a human rewrite, the answer, and answer provenance. It is the intended
+final benchmark for history-aware pruning; the CfC study (Section~\ref{sec:cfc})
+already uses QReCC-derived teacher labels.
+
+\begin{table}[t]
+\centering
+\caption{HotpotQA dataset summary (distractor setting).}\label{tab:dataset}
+\begin{tabular}{ll}
+\toprule
+\textbf{Property} & \textbf{Value}\\
+\midrule
+Full name & HotpotQA (distractor setting)\\
+Source & HuggingFace \texttt{hotpot\_qa}\\
+Training / validation samples & $\sim$90{,}447 / $\sim$7{,}405\\
+Samples used (experiments / calibration) & 200 / 50\\
+Passages per question & 10 (2 supporting + 8 distractors)\\
+Answer type & Short span / yes--no\\
+Task type & Multi-hop open-domain QA\\
+Status & Loader implemented, JSONL prepared\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The main challenges HotpotQA introduces are: (1)~the eight distractors directly
+inflate context length and inject factual noise; (2)~multi-hop questions need
+evidence from at least two passages, so aggressive pruning risks discarding a
+required supporting passage; and (3)~there is no dedicated retrieval split, so
+we evaluate end-to-end retrieval alongside pruning on the same validation
+samples.
+
+\section{Literature Review}
+
+\paragraph{RAG and faithfulness.}
+RAG~\cite{lewis2020rag} grounds generation in retrieved documents and improves
+knowledge-intensive tasks; \cite{shuster2021retrieval} shows retrieval reduces
+conversational hallucination. FActScore~\cite{min2023factscore} decomposes
+long-form text into atomic facts and verifies each against a knowledge source,
+directly motivating our claim-level faithfulness metric.
+\cite{liu2024lost} documents the ``lost in the middle'' effect, motivating
+pruning as a way to surface evidence.
+
+\paragraph{Context compression.}
+LLMLingua~\cite{jiang2023llmlingua} scores tokens with a small proxy LM and
+drops low-importance ones; LLMLingua-2~\cite{pan2024llmlingua2} reframes
+compression as token classification with data distillation, reporting
+$2$--$5\times$ compression with $1.6$--$2.9\times$ latency speedups.
+Provence~\cite{yoon2024provence} treats sentence pruning as sequence labelling
+for RAG at negligible added cost. RECOMP~\cite{xu2023recomp} frames compression
+as extractive or abstractive summarization and reports compression rates as low
+as 6\% with minimal performance loss. These four works define our baseline and
+advanced pruners.
+
+\paragraph{LLM-as-Judge.}
+\cite{zheng2023mtbench} shows strong LLMs correlate well with human rankings
+despite positional and verbosity biases. RAGAS~\cite{es2023ragas} provides a
+reference-free RAG evaluation that checks whether each claim in the answer is
+entailed by the context---the decompose-then-verify paradigm we adopt, with
+open-weight rather than proprietary models, calibrated by Cohen's $\kappa$.
+
+\paragraph{Adaptive computation.}
+For the conversational extension we draw on Closed-form Continuous-time (CfC)
+networks~\cite{hasani2022cfc}, which capture continuous temporal dynamics
+without a heavy ODE solver, and on surprisal theory from
+psycholinguistics~\cite{levy2008,smith2013}, where reading time scales
+logarithmically with word surprisal $-\log P(w_j\mid w_{<j})$. We test whether
+surprisal is a useful proxy for per-turn importance.
+
+\section{Baseline and Advanced Pruning Strategies}
+
+We evaluate seven strategies (Table~\ref{tab:strategies}) organized as three
+baselines and four advanced methods, all sharing a common \texttt{BasePruner}
+interface and registered in a central \texttt{PRUNER\_REGISTRY} so that
+retrieval and generation are held fixed and only the retained context changes.
+
+\begin{table}[t]
+\centering
+\caption{Pruning strategies under evaluation. All implemented and complete.}\label{tab:strategies}
+\begin{tabular}{lll}
+\toprule
+\textbf{ID} & \textbf{Strategy} & \textbf{Type}\\
+\midrule
+B1 & No pruning (full context)        & Baseline (coverage upper bound)\\
+B2 & Naive truncation (512 tokens)    & Baseline (production fallback)\\
+B3 & RECOMP-style extractive          & Prior-work extractive baseline\\
+S1 & LLMLingua-2                      & Token-level compression\\
+S2 & Provence                        & Sentence-level pruning\\
+S3 & Semantic history pruning         & History-aware pruning\\
+S4 & Provence + history (combined)    & Combined\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+B1 is the coverage upper bound: maximum evidence but maximum noise. B2 is the
+standard engineering fallback under a hard token budget. B3 selects
+query-relevant sentences by lexical (Jaccard) overlap, bridging truncation and
+learned compression. S1 and S2 are the state of the art in token- and
+sentence-level compression. S3 removes passages that overlap with information
+already surfaced in prior turns. S4 chains Provence then history pruning to
+combine semantic filtering with redundancy removal.
+
+\section{Experimental Results}
+
+All experiments were reproduced in Google Colab with GPU runtimes.
+Mistral-7B-Instruct-v0.2 serves as both generator and judge (shared when
+possible). Notebook~2 is a broad seven-pruner sanity run over 50 HotpotQA
+validation samples; Notebook~5 is a corrected gap-closing run over a held-out
+50-sample slice (validation indices 600--649) that fixes three weaknesses:
+genuine LLMLingua-2 execution, non-empty two-turn history pruning, and
+qualitative error exports.
+
+\subsection{Baseline Sanity Run}
+
+Table~\ref{tab:baseline} confirms the expected pattern: RECOMP improves
+faithfulness over hard truncation, while Provence's default threshold is very
+aggressive for multi-hop HotpotQA. The S1 row here is a historical artifact:
+LLMLingua-2 fell back to the RECOMP implementation, so S1 and B3 are identical;
+S3/S4 use empty history and are degenerate single-turn cases.
+
+\begin{table}[t]
+\centering
+\caption{Notebook~2 baseline results --- 50 HotpotQA validation samples,
+Mistral-7B-Instruct-v0.2. Comp.\ = compression ratio (kept/input);
+Lat.\ = latency.}\label{tab:baseline}
+\begin{tabular}{lccccr}
+\toprule
+\textbf{Strategy} & \textbf{Faith.} & \textbf{EM} & \textbf{F1} & \textbf{Comp.} & \textbf{Lat.\ (s)}\\
+\midrule
+B1: No pruning            & 0.718 & 0.040 & 0.148 & 1.000 & 6.76\\
+B2: Naive truncation      & 0.621 & 0.040 & 0.139 & 0.918 & 4.95\\
+B3: RECOMP                & \textbf{0.750} & 0.040 & 0.141 & 0.911 & 5.38\\
+S1: LLMLingua-2 (fallback)& \textbf{0.750} & 0.040 & 0.141 & 0.911 & 5.38\\
+S2: Provence              & 0.657 & 0.000 & 0.057 & \textbf{0.072} & \textbf{4.49}\\
+S3: History (empty)       & 0.718 & 0.040 & 0.148 & 1.000 & 6.34\\
+S4: Combined (empty)      & 0.657 & 0.000 & 0.057 & \textbf{0.072} & \textbf{4.48}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Gap-Closing Run}
+
+Notebook~5 re-ran the problematic strategies under corrected conditions:
+LLMLingua-2 with the \texttt{llmlingua} package and \texttt{use\_llmlingua2=True}
+(zero fallbacks recorded), and S3/S4 with synthetic two-turn history. We add
+supporting-fact \emph{coverage} (fraction of gold supporting sentences retained)
+and \emph{noise} ratio to make pruning failures visible beyond faithfulness
+alone (Table~\ref{tab:gap}, Fig.~\ref{fig:tradeoff}).
+
+\begin{table}[t]
+\centering
+\caption{Notebook~5 gap-closing results --- 50 held-out HotpotQA samples
+(indices 600--649). Cov.\ = supporting-fact coverage.}\label{tab:gap}
+\begin{tabular}{lcccccc}
+\toprule
+\textbf{Strategy} & \textbf{Faith.} & \textbf{EM} & \textbf{F1} & \textbf{Comp.} & \textbf{Cov.} & \textbf{Noise}\\
+\midrule
+B3: RECOMP              & 0.648 & 0.080 & 0.195 & 0.962 & \textbf{0.760} & 0.624\\
+S1: LLMLingua-2 (real)  & \textbf{0.711} & 0.040 & 0.167 & 0.457 & 0.000 & 0.792\\
+S3: History (two-turn)  & 0.533 & \textbf{0.100} & \textbf{0.214} & 0.962 & 0.627 & 0.641\\
+S4: Combined (two-turn) & 0.530 & 0.040 & 0.112 & \textbf{0.081} & 0.222 & \textbf{0.284}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.72\textwidth]{faithfulness_vs_compression.png}
+\caption{Faithfulness versus compression on the HotpotQA gap-closing run. The
+desirable region is high faithfulness with a smaller context. LLMLingua-2
+reaches the best faithfulness at much higher compression, while the combined
+pruner is the most compact but discards too much supporting
+evidence.}\label{fig:tradeoff}
+\end{figure}
+
+Corrected LLMLingua-2 is no longer identical to RECOMP: it compresses far more
+aggressively (0.457 vs.\ 0.962) and obtains higher judge faithfulness (0.711
+vs.\ 0.648), yet its verbatim supporting-fact coverage is 0.000. LLMLingua-2
+often rewrites or fragments evidence in a way that can still support the answer
+but no longer preserves gold sentences verbatim---so coverage and faithfulness
+measure different things. Two-turn history pruning changes behaviour relative to
+the empty-history case but here lowers faithfulness to 0.533, suggesting the
+novelty-only redundancy score discards useful repeated evidence. The combined
+setting is the most compact (0.081) and lowest-noise (0.284), but its low
+coverage (0.222) confirms the Provence threshold is too aggressive for multi-hop
+QA. The broad lesson is that faithfulness, EM/F1, and coverage capture distinct
+failure modes, so no single metric should be treated as ground truth.
+
+\section{Error Analysis and Generation Quality}
+
+Notebook~5 exports concrete error candidates
+(\texttt{error\_analysis\_candidates.jsonl}). Four recurring failure modes
+emerge (Table~\ref{tab:errors}).
+
+\begin{table}[t]
+\centering
+\caption{Recurring error categories with representative examples.}\label{tab:errors}
+\begin{tabular}{p{0.30\textwidth}p{0.62\textwidth}}
+\toprule
+\textbf{Error type} & \textbf{Example pattern}\\
+\midrule
+Pruning removes evidence &
+``Who wrote the song \emph{Arizona}?'' loses the sentence naming
+\emph{Kenny Young}; LLMLingua-2 answers ``I don't know,'' coverage 0.000.\\
+Verbose-but-correct under-credited &
+For ``Are both Parodia and Thalictrum flowering plants?'' S4 answers
+correctly with explanation: faithfulness 1.0, coverage 1.0, but EM 0.0
+(gold is ``yes'').\\
+Judge false negative &
+For Watercliffe Meadow, the answer ``Political correctness'' gets
+EM/F1 = 1.0, coverage 1.0, but judge faithfulness 0.0.\\
+Entity near-miss &
+Generator outputs ``T.\ M.\ Howard'' instead of ``T.\ R.\ M.\ Howard'';
+F1 0.857 but EM 0.0 and faithfulness 0.0.\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The strongest pattern is that faithfulness, EM/F1, and coverage disagree by
+construction: LLMLingua-2 has the best faithfulness yet zero retained-sentence
+coverage, while some exactly correct short answers receive low judge scores.
+This makes human calibration of the judge a prerequisite before treating
+faithfulness as a standalone target, and motivates a semantic rather than
+verbatim coverage metric.
+
+\section{Adaptive Pruning: An Entropy-Driven CfC Extension}\label{sec:cfc}
+
+Fixed thresholds cannot tell whether a conversation turn is easy, noisy,
+redundant, or load-bearing for the current question. We explore an adaptive
+controller that allocates more ``processing time'' to surprising turns,
+borrowing from surprisal theory: reading time scales with surprisal
+$-\log P(w_j\mid w_{<j})$~\cite{levy2008,smith2013}. We do \emph{not} claim
+surprisal equals importance; we test whether it is a useful proxy.
+
+\paragraph{Mechanism.}
+For utterance $u_i$ we compute mean token surprisal with a DistilGPT-2 proxy,
+$S(u_i) = -\tfrac{1}{N}\sum_{j=1}^{N}\log P(w_j\mid w_{<j})$, and map it to a
+continuous CfC time step (rank-normalised for outlier robustness):
+\begin{equation}
+\Delta t_i = \Delta t_{\min} + \beta\,\frac{\mathrm{rank}(S_i)}{T},
+\qquad
+\varphi_i = 1 - e^{-\lambda\,\Delta t_i}.
+\end{equation}
+The CfC integrates over $\Delta t_i$ each turn; the commitment fraction
+$\varphi_i$ measures how strongly the hidden state locks on, so a larger
+$\Delta t_i$ leaves a stronger trace and yields a higher importance score
+$\hat p_i = \sigma(Wh_i + b)$. Turns with $\hat p_i < \tau$ are pruned.
+
+\paragraph{Simulate before training.}
+Because end-to-end tuning with a 7B teacher is expensive and the proxy may carry
+no signal at all, we ran seven model-free simulations, each isolating one design
+question and returning a config value or a falsifiable go/no-go threshold
+(Table~\ref{tab:sims}). The recurring metric is \emph{importance recovery}: the
+Spearman correlation between a method's per-turn score and the latent true
+importance.
+
+\begin{table}[t]
+\centering
+\caption{Simulation suite: each item fixes a parameter or a go/no-go test.}\label{tab:sims}
+\begin{tabular}{cp{0.42\textwidth}p{0.40\textwidth}}
+\toprule
+\textbf{\#} & \textbf{Question} & \textbf{Result}\\
+\midrule
+S0 & Does the commitment lever exist in the real \texttt{ncps} CfC? & $\rho=+0.944$; analytic error $\approx 4\times10^{-10}$\\
+S1 & Is surprisal$\to$commitment a tautology? & No --- closed-form; lever saturates at high $S$\\
+S2 & Which $\beta^{*},\Delta t_{\min}^{*}$ maximise recovery? & $\beta^{*}=1.0$, $\Delta t_{\min}^{*}=0.05$\\
+S5 & Which $\Delta t$ mapping survives outliers? & Rank normalisation most robust\\
+S4 & What does leave-one-out KL measure? & Marginal answer-necessity = correct target\\
+S3 & Does surprisal proxy importance well enough? & Go/no-go: $\rho^{*}\!\approx\!0.1$; $\rho\!\geq\!0.5$ beats cosine\\
+S6 & What fidelity--compression is reachable? & 40\% compression at 90\% fidelity\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Two simulations decide the project. S2 (Fig.~\ref{fig:s2}) shows recovery peaks
+at $\beta^{*}=1.0$, $\Delta t_{\min}^{*}=0.05$, and---critically---at $\beta=0$
+(uniform $\Delta t$) recovery collapses to $\approx 0$: the entropy term, not the
+network, carries the signal. S3 (Fig.~\ref{fig:s3}) is the honest go/no-go test:
+entropy-$\Delta t$ only beats uniform once
+$\rho(\text{surprisal},\text{importance})>\rho^{*}\approx0.1$ and only beats a
+cosine baseline once $\rho\geq0.5$. The action is to measure $\rho$ on real
+QReCC \emph{before} training.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.92\textwidth]{s2_beta_dtmin_design.png}
+\caption{S2 --- choosing $\beta$ and $\Delta t_{\min}$ from data. Left: recovery
+over the $(\beta,\Delta t_{\min})$ grid peaks at the starred point. Right: at
+$\beta=0$ recovery is near zero, confirming the entropy term carries the
+signal.}\label{fig:s2}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\begin{minipage}[c]{0.49\textwidth}
+\centering
+\includegraphics[width=\linewidth]{s3_proxy_quality_limit.png}
+\caption{S3 --- recovery rises with proxy quality $\rho$; go/no-go at
+$\rho^{*}\approx0.1$, cosine-beating at $\rho\geq0.5$.}\label{fig:s3}
+\end{minipage}\hfill
+\begin{minipage}[c]{0.49\textwidth}
+\centering
+\includegraphics[width=\linewidth]{proxy_quality_gonogo.png}
+\caption{Real QReCC: mean surprisal--teacher Spearman is $-0.074$, below the
+$\rho^{*}=0.1$ threshold.}\label{fig:gonogo}
+\end{minipage}
+\end{figure}
+
+\paragraph{Real-data result: an honest negative.}
+On QReCC teacher labels (answer-conditioned leave-one-out $\Delta$NLL of the
+gold answer, scored with Qwen2.5-1.5B-Instruct), the mean surprisal--importance
+Spearman is $-0.074$ (Fig.~\ref{fig:gonogo})---below the go/no-go threshold and
+far below the cosine-beating target. We trained the CfC anyway as a stress test
+(SBERT turn embeddings + rank-normalised $\Delta t_i$, MSE to normalised teacher
+importance). It did not generalise (Fig.~\ref{fig:train},
+Fig.~\ref{fig:valmetrics}): train loss fell from 0.1293 to 0.1201 while
+validation loss barely moved (best 0.1251 at epoch~6, then drifting to 0.1257);
+best validation F1 was only 0.050 at $\tau=0.5$, recall peaked at 0.027, and MAE
+stayed flat near 0.300. The model predicts very few important turns---high
+precision (0.397) only because it abstains.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.62\textwidth]{train_val_loss.png}
+\caption{CfC training and validation loss. Training improves while validation
+is flat then worsens after epoch~6 --- memorisation, not importance
+learning.}\label{fig:train}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\begin{minipage}[c]{0.49\textwidth}
+\centering
+\includegraphics[width=\linewidth]{val_f1_curve.png}
+\end{minipage}\hfill
+\begin{minipage}[c]{0.49\textwidth}
+\centering
+\includegraphics[width=\linewidth]{val_mae_curve.png}
+\end{minipage}
+\caption{CfC validation F1 (left) and MAE (right). F1 peaks at 0.050; MAE stays
+near 0.300, indicating uncalibrated per-turn scores.}\label{fig:valmetrics}
+\end{figure}
+
+The CfC mechanism is mathematically valid (S0 confirms the commitment lever at
+$\rho=+0.944$), but this experiment \emph{rejects} the stronger claim that
+DistilGPT-2 surprisal is a reliable importance proxy for QReCC history turns.
+The simulation suite paid off: it predicted the failure cheaply and told us
+exactly which assumption broke.
+
+\section{Ablation and Prompt-Sensitivity Plan}\label{sec:ablation}
+
+We plan a targeted ablation set to attribute faithfulness gains to the
+compression strategy rather than incidental factors: (1)~\emph{judge prompt
+format}, zero-shot vs.\ 2-shot for both claim decomposition and verification;
+(2)~\emph{verification response}, strict binary YES/NO vs.\ a soft confidence
+thresholded at 0.5; (3)~\emph{retrieval depth}, $k=3$ vs.\ $k=5$;
+(4)~\emph{truncation budget}, 256 vs.\ 512 tokens for B2/B3; and
+(5)~\emph{history context}, empty (single-turn) vs.\ two-turn history for S3/S4.
+For the CfC extension the ablation axes are the proxy channel (raw surprisal vs.\
+question-conditioned similarity vs.\ LOO~$\Delta$NLL features) and the pruning
+rule (fixed $\tau=0.5$ vs.\ ranking loss / top-$k$).
+
+\section{Ethical Considerations and Bias}
+
+The judge is Mistral-7B-Instruct, which may inherit positional bias (favouring
+early claims), verbosity bias (favouring longer answers), and cultural skews
+from its training data. HotpotQA passages come from English Wikipedia, which
+underrepresents non-Western entities, so faithfulness estimates may be more
+reliable for densely covered topics. Crucially, faithfulness to context is not
+truthfulness about the world: a model that faithfully reproduces a false
+retrieved claim scores high while being wrong. All models are open-weight and
+used solely for academic research; no proprietary APIs and no personal data are
+involved. Results should not be extrapolated to high-stakes QA without
+additional human evaluation.
+
+\section{Reproducibility Status}
+
+The repository (\url{https://github.com/Mrtuzy/CENG467_Final}) is a modular
+Python package with separated data, retrieval, pruning, generation, evaluation,
+and judge components, plus a simulation suite for the CfC study. The primary
+execution interface is Google Colab:
+\texttt{01\_data\_exploration.ipynb} (dataset checks),
+\texttt{02\_baseline\_results.ipynb} (baseline sanity),
+\texttt{05\_final\_colab\_runs.ipynb} (LLMLingua-2, two-turn history, judge
+calibration scaffold, error exports), and the LNN/CfC notebooks as exploratory
+artifacts. All seven pruners are implemented behind the shared registry, and
+result JSONL files, an aggregate summary, and error candidates are written under
+\texttt{experiments/results/}.
+
+\section{Current Challenges and Next Steps}
+
+Three challenges remain. First, aggressive compression still trades coverage for
+faithfulness: real LLMLingua-2 reaches the best faithfulness (0.711) at 0.000
+verbatim coverage, so we need a semantic coverage metric. Second, Provence's
+default threshold is too aggressive for multi-hop QA (combined keeps 8.1\% of
+tokens at 0.222 coverage); threshold tuning toward a 0.4--0.6 ratio is needed.
+Third, the judge still mis-scores some short answers, so human calibration is
+the most important validation step.
+
+Concretely, we plan to: complete LLM-as-Judge calibration on 20--50 examples and
+report Cohen's $\kappa$; tune Provence thresholds and re-run S2/S4; add a
+compression-aware coverage metric; scale Notebook~5 from 50 to 200 samples;
+prompt the generator for a concise final answer and report EM/F1 before and
+after extraction; replace raw surprisal with stronger importance proxies
+(question-conditioned similarity, LOO~$\Delta$NLL, learned distillation) and a
+ranking/top-$k$ pruning rule before re-running the CfC against full-context,
+random, and cosine-history baselines; and migrate the final evaluation from the
+HotpotQA pilot to real QReCC dialogue histories.
+
+\begin{credits}
+\subsubsection{\discintname}
+The authors have no competing interests to declare that are relevant to the
+content of this article.
+\end{credits}
+%
+\begin{thebibliography}{99}
+
+\bibitem{lewis2020rag}
+Lewis, P., Perez, E., Piktus, A., Petroni, F., Karpukhin, V., Goyal, N.,
+K\"{u}ttler, H., Lewis, M., Yih, W., Rockt\"{a}schel, T., Riedel, S., Kiela, D.:
+Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks.
+In: Advances in Neural Information Processing Systems (NeurIPS) (2020)
+
+\bibitem{shuster2021retrieval}
+Shuster, K., Poff, S., Chen, M., Kiela, D., Weston, J.:
+Retrieval Augmentation Reduces Hallucination in Conversation.
+In: Findings of EMNLP (2021)
+
+\bibitem{xu2023recomp}
+Xu, F., Shi, W., Choi, E.:
+RECOMP: Improving Retrieval-Augmented LMs with Compression and Selective Augmentation.
+In: International Conference on Learning Representations (ICLR) (2024)
+
+\bibitem{jiang2023llmlingua}
+Jiang, H., Wu, Q., Lin, C.-Y., Yang, Y., Qiu, L.:
+LLMLingua: Compressing Prompts for Accelerated Inference of Large Language Models.
+In: Proceedings of EMNLP (2023)
+
+\bibitem{pan2024llmlingua2}
+Pan, Z., Wu, Q., Jiang, H., Garg, M., Liden, N., Ronen, Y., Qiu, L.:
+LLMLingua-2: Data Distillation for Efficient and Faithful Task-Agnostic Prompt Compression.
+In: Findings of ACL (2024)
+
+\bibitem{yoon2024provence}
+Chirkova, N., Yoon, S., Xu, W., Xu, F., Ji, H.:
+Provence: Efficient and Robust Context Pruning for Retrieval-Augmented Generation.
+In: Proceedings of NAACL (2025)
+
+\bibitem{zheng2023mtbench}
+Zheng, L., Chiang, W.-L., Sheng, Y., Zhuang, S., Wu, Z., Zhuang, Y., Lin, Z.,
+Li, Z., Li, D., Xing, E.P., Zhang, H., Gonzalez, J.E., Stoica, I.:
+Judging LLM-as-a-Judge with MT-Bench and Chatbot Arena.
+In: Advances in Neural Information Processing Systems (NeurIPS) (2023)
+
+\bibitem{es2023ragas}
+Es, S., James, J., Espinosa-Anke, L., Schockaert, S.:
+RAGAS: Automated Evaluation of Retrieval Augmented Generation.
+In: Proceedings of EACL (2024)
+
+\bibitem{min2023factscore}
+Min, S., Krishna, K., Lyu, X., Lewis, M., Yih, W., Koh, P.W., Iyyer, M.,
+Zettlemoyer, L., Hajishirzi, H.:
+FActScore: Fine-grained Atomic Evaluation of Factual Precision in Long Form Text Generation.
+In: Proceedings of EMNLP (2023)
+
+\bibitem{yang2018hotpotqa}
+Yang, Z., Qi, P., Zhang, S., Bengio, Y., Cohen, W.W., Salakhutdinov, R.,
+Manning, C.D.:
+HotpotQA: A Dataset for Diverse, Explainable Multi-hop Question Answering.
+In: Proceedings of EMNLP (2018)
+
+\bibitem{anantha2021qrecc}
+Anantha, R., Vakulenko, S., Tu, Z., Longpre, S., Pulman, S., Chappidi, S.:
+Open-Domain Question Answering Goes Conversational via Question Rewriting.
+In: Proceedings of NAACL (2021)
+
+\bibitem{liu2024lost}
+Liu, N.F., Lin, K., Hewitt, J., Paranjape, A., Bevilacqua, M., Petroni, F.,
+Liang, P.:
+Lost in the Middle: How Language Models Use Long Contexts.
+Transactions of the Association for Computational Linguistics (TACL) (2024)
+
+\bibitem{hasani2022cfc}
+Hasani, R., Lechner, M., Amini, A., Liebenwein, L., Ray, A., Tschaikowski, M.,
+Teschl, G., Rus, D.:
+Closed-form Continuous-time Neural Networks.
+Nature Machine Intelligence \textbf{4}, 992--1003 (2022)
+
+\bibitem{levy2008}
+Levy, R.:
+Expectation-based Syntactic Comprehension.
+Cognition \textbf{106}(3), 1126--1177 (2008)
+
+\bibitem{smith2013}
+Smith, N.J., Levy, R.:
+The Effect of Word Predictability on Reading Time is Logarithmic.
+Cognition \textbf{128}(3), 302--319 (2013)
+
+\end{thebibliography}
+\end{document}

@@ -1,0 +1,91 @@
+\relax 
+\citation{lewis2020rag}
+\citation{shuster2021retrieval}
+\citation{liu2024lost}
+\@writefile{toc}{\contentsline {title}{Faithfulness Under Pressure: Context and\unskip \ \ignorespaces  History Pruning Strategies for RAG Faithfulness\unskip \ \ignorespaces  in Small Language Models}{1}{}\protected@file@percent }
+\@writefile{toc}{\authcount {2}}
+\@writefile{toc}{\contentsline {author}{Mert G\"{u}den \and Berkay Fehmi Tekin}{1}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {1}Introduction and Problem Definition}{1}{}\protected@file@percent }
+\citation{yang2018hotpotqa}
+\citation{es2023ragas}
+\citation{anantha2021qrecc}
+\citation{anantha2021qrecc}
+\@writefile{toc}{\contentsline {paragraph}{Task.}{2}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Technical challenge.}{2}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Topic evolution.}{2}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {2}Dataset and Benchmark Status}{2}{}\protected@file@percent }
+\citation{lewis2020rag}
+\citation{shuster2021retrieval}
+\citation{min2023factscore}
+\citation{liu2024lost}
+\citation{jiang2023llmlingua}
+\citation{pan2024llmlingua2}
+\citation{yoon2024provence}
+\citation{xu2023recomp}
+\citation{zheng2023mtbench}
+\citation{es2023ragas}
+\@writefile{lot}{\contentsline {table}{\numberline {1}{\ignorespaces HotpotQA dataset summary (distractor setting).}}{3}{}\protected@file@percent }
+\providecommand*\caption@xref[2]{\@setref\relax\@undefined{#1}}
+\newlabel{tab:dataset}{{1}{3}{}{table.1}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {3}Literature Review}{3}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{RAG and faithfulness.}{3}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Context compression.}{3}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{LLM-as-Judge.}{3}{}\protected@file@percent }
+\citation{hasani2022cfc}
+\citation{levy2008,smith2013}
+\@writefile{lot}{\contentsline {table}{\numberline {2}{\ignorespaces Pruning strategies under evaluation. All implemented and complete.}}{4}{}\protected@file@percent }
+\newlabel{tab:strategies}{{2}{4}{}{table.2}{}}
+\@writefile{toc}{\contentsline {paragraph}{Adaptive computation.}{4}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {4}Baseline and Advanced Pruning Strategies}{4}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {5}Experimental Results}{4}{}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {3}{\ignorespaces Notebook~2 baseline results --- 50 HotpotQA validation samples, Mistral-7B-Instruct-v0.2. Comp.\ = compression ratio (kept/input); Lat.\ = latency.}}{5}{}\protected@file@percent }
+\newlabel{tab:baseline}{{3}{5}{}{table.3}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {4}{\ignorespaces Notebook~5 gap-closing results --- 50 held-out HotpotQA samples (indices 600--649). Cov.\ = supporting-fact coverage.}}{5}{}\protected@file@percent }
+\newlabel{tab:gap}{{4}{5}{}{table.4}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.1}Baseline Sanity Run}{5}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.2}Gap-Closing Run}{5}{}\protected@file@percent }
+\citation{levy2008,smith2013}
+\@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces Faithfulness versus compression on the HotpotQA gap-closing run. The desirable region is high faithfulness with a smaller context. LLMLingua-2 reaches the best faithfulness at much higher compression, while the combined pruner is the most compact but discards too much supporting evidence.}}{6}{}\protected@file@percent }
+\newlabel{fig:tradeoff}{{1}{6}{}{figure.1}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {6}Error Analysis and Generation Quality}{6}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {7}Adaptive Pruning: An Entropy-Driven CfC Extension}{6}{}\protected@file@percent }
+\newlabel{sec:cfc}{{7}{6}{}{section.7}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {5}{\ignorespaces Recurring error categories with representative examples.}}{7}{}\protected@file@percent }
+\newlabel{tab:errors}{{5}{7}{}{table.5}{}}
+\@writefile{toc}{\contentsline {paragraph}{Mechanism.}{7}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Simulate before training.}{7}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Real-data result: an honest negative.}{7}{}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {6}{\ignorespaces Simulation suite: each item fixes a parameter or a go/no-go test.}}{8}{}\protected@file@percent }
+\newlabel{tab:sims}{{6}{8}{}{table.6}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {8}Ablation and Prompt-Sensitivity Plan}{8}{}\protected@file@percent }
+\newlabel{sec:ablation}{{8}{8}{}{section.8}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {9}Ethical Considerations and Bias}{8}{}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces S2 --- choosing $\beta $ and $\Delta t_{\min }$ from data. Left: recovery over the $(\beta ,\Delta t_{\min })$ grid peaks at the starred point. Right: at $\beta =0$ recovery is near zero, confirming the entropy term carries the signal.}}{9}{}\protected@file@percent }
+\newlabel{fig:s2}{{2}{9}{}{figure.2}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {3}{\ignorespaces S3 --- recovery rises with proxy quality $\rho $; go/no-go at $\rho ^{*}\approx 0.1$, cosine-beating at $\rho \geq 0.5$.}}{9}{}\protected@file@percent }
+\newlabel{fig:s3}{{3}{9}{}{figure.3}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {4}{\ignorespaces Real QReCC: mean surprisal--teacher Spearman is $-0.074$, below the $\rho ^{*}=0.1$ threshold.}}{9}{}\protected@file@percent }
+\newlabel{fig:gonogo}{{4}{9}{}{figure.4}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {10}Reproducibility Status}{9}{}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {5}{\ignorespaces CfC training and validation loss. Training improves while validation is flat then worsens after epoch~6 --- memorisation, not importance learning.}}{10}{}\protected@file@percent }
+\newlabel{fig:train}{{5}{10}{}{figure.5}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {6}{\ignorespaces CfC validation F1 (left) and MAE (right). F1 peaks at 0.050; MAE stays near 0.300, indicating uncalibrated per-turn scores.}}{10}{}\protected@file@percent }
+\newlabel{fig:valmetrics}{{6}{10}{}{figure.6}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {11}Current Challenges and Next Steps}{10}{}\protected@file@percent }
+\bibcite{lewis2020rag}{1}
+\bibcite{shuster2021retrieval}{2}
+\bibcite{xu2023recomp}{3}
+\bibcite{jiang2023llmlingua}{4}
+\bibcite{pan2024llmlingua2}{5}
+\bibcite{yoon2024provence}{6}
+\bibcite{zheng2023mtbench}{7}
+\bibcite{es2023ragas}{8}
+\bibcite{min2023factscore}{9}
+\bibcite{yang2018hotpotqa}{10}
+\bibcite{anantha2021qrecc}{11}
+\bibcite{liu2024lost}{12}
+\bibcite{hasani2022cfc}{13}
+\bibcite{levy2008}{14}
+\bibcite{smith2013}{15}
+\@writefile{toc}{\contentsline {subsubsection}{Disclosure of Interests.}{11}{}\protected@file@percent }
+\gdef \@abspage@last{12}
