@@ -25,12 +25,16 @@ def load_hotpotqa(split: str, n_samples: int = None) -> list[dict]:
     """
     from datasets import load_dataset
 
-    dataset = load_dataset(
-        "hotpot_qa",
-        "distractor",
-        split=split,
-        trust_remote_code=True,
-    )
+    # Newer `datasets` versions dropped `trust_remote_code` and no longer resolve
+    # the legacy non-namespaced "hotpot_qa" script id; the dataset now lives at
+    # the namespaced Parquet repo "hotpotqa/hotpot_qa". Fall back to the legacy
+    # id (with trust_remote_code) for older `datasets` installs.
+    try:
+        dataset = load_dataset("hotpotqa/hotpot_qa", "distractor", split=split)
+    except Exception:
+        dataset = load_dataset(
+            "hotpot_qa", "distractor", split=split, trust_remote_code=True
+        )
 
     samples = []
     for item in dataset:
